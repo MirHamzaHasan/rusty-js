@@ -11,7 +11,7 @@ established for RustyJS.
 
 ## Status
 
-Phase 2 has started with core EventEmitter support. Core execution supports classic scripts from files or inline
+Phase 2 provides core EventEmitter and Buffer support. Core execution supports classic scripts from files or inline
 source, native `console.log`, and JavaScript exception diagnostics with file origins
 and available stack traces. It explicitly drains Promise microtasks and exposes
 `Rusty.sleep(ms)` through a Tokio-to-JavaScript Promise bridge. The library keeps
@@ -32,6 +32,8 @@ ES modules can use `createRequire(import.meta.url)` from `rustyjs:module` to
 access that same CommonJS loader and cache.
 EventEmitter is available through `node:events`, `events`, and `rustyjs:events`,
 sharing constructor identity across ESM and CommonJS.
+Buffer adds Uint8Array-backed bytes, explicit copy/view ownership, UTF-8 and
+binary encodings, bounds-checked numeric IO, and the node:buffer/buffer aliases.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -53,6 +55,7 @@ cargo run --locked -- examples/packages/maps.mjs
 cargo run --locked -- examples/commonjs/main.cjs
 cargo run --locked -- examples/commonjs/factory.mjs
 cargo run --locked -- examples/events/main.mjs
+cargo run --locked -- examples/buffer/main.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -84,7 +87,7 @@ The [package contract](docs/packages.md) describes resolution and format rules:
 `.mjs` and type-module `.js` use ESM; `.cjs` and untyped/commonjs `.js` use
 [CommonJS loading](docs/commonjs.md) when imported or required. CLI `.js` files
 still default to classic scripts unless a mode flag is supplied.
-See [EventEmitter](docs/events.md) and [Phase 2 progress](docs/phase-2.md) for the
+See [EventEmitter](docs/events.md), [Buffer](docs/buffer.md), and [Phase 2 progress](docs/phase-2.md) for the
 initial Node surface and remaining milestones.
 
 ## Roadmap

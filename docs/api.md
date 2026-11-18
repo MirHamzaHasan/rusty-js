@@ -101,7 +101,7 @@ ESM imports expose only `default` from a CommonJS module and use the same backin
 cache as require. Mutating the captured exports object is shared; reassigning
 module.exports later does not update an evaluated ESM snapshot. `require(ESM)` is
 rejected with guidance to use dynamic import. Full Node error codes, cache
-mutation hooks and other Node built-ins remain absent beyond the events subset. See the
+mutation hooks and most Node built-ins remain absent beyond the events and Buffer subsets. See the
 [CommonJS walkthrough](commonjs.md) for lifetime, retry, and cancellation rules.
 
 ## `rustyjs:module`
@@ -139,6 +139,19 @@ synchronous, ordered, and snapshot-based, with original error propagation and
 once re-entry protection. Promise returns are ignored; captureRejections=true is
 explicitly unsupported. See the [events contract](events.md) for meta-events,
 warnings, aliases, limits, and examples.
+
+## Buffer
+
+The global `Buffer` and named export from `node:buffer`, `buffer`, and
+`rustyjs:buffer` are the same constructor. CommonJS returns an object with that
+`.Buffer` property. There is no default ESM export yet.
+
+The supported surface includes alloc/from, isBuffer/isEncoding/byteLength,
+concat/compare, shared slice/subarray, toString/write, copy/fill, equals/toJSON,
+and fixed-width numeric reads/writes (including BigInt). New storage is always
+zeroed. One Buffer is limited to 64 MiB; this is not a runtime memory budget.
+See the [Buffer contract](buffer.md) for copying versus sharing, encodings,
+strict validation, unsupported APIs, and local correctness evidence.
 
 ## `rustyjs:timers`
 

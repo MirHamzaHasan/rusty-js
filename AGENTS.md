@@ -124,8 +124,11 @@ node:events and events. ESM default/named and CJS constructor routes share ident
 Keep `docs/events.md` and `docs/phase-2.md` current. This is synchronous V8-side
 listener logic with only warning IO in Rust; do not imply a native/JS speedup.
 Capture rejections, EventTarget, async events utilities, and other Node built-ins
-remain separate tasks. Next implement the Buffer byte/encoding/ownership slice
-before streams or filesystem APIs.
+remain separate tasks. Buffer now adds fixed V8 byte storage, copy/view semantics,
+UTF-8/hex/base64 and single-byte/UTF-16 encodings, byte operations, and fixed-width
+numeric IO. Keep `docs/buffer.md` current. A 64 MiB per-Buffer guard is not an
+isolate budget or sandbox. The next slice is bounded Readable/Writable streams
+using the existing EventEmitter and Buffer contracts before filesystem APIs.
 No package manager or full Node compatibility is implied.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
