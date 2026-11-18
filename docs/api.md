@@ -101,8 +101,30 @@ ESM imports expose only `default` from a CommonJS module and use the same backin
 cache as require. Mutating the captured exports object is shared; reassigning
 module.exports later does not update an evaluated ESM snapshot. `require(ESM)` is
 rejected with guidance to use dynamic import. Full Node error codes, cache
-mutation hooks, ESM createRequire, and Node built-ins are absent. See the
+mutation hooks, and Node built-ins are absent. See the
 [CommonJS walkthrough](commonjs.md) for lifetime, retry, and cancellation rules.
+
+## `rustyjs:module`
+
+```js
+import { createRequire } from 'rustyjs:module';
+const require = createRequire(import.meta.url);
+const data = require('./data.json');
+```
+
+`createRequire(filename)` accepts a primitive absolute path string or `file:` URL
+string. It returns a bound require function with main/resolve metadata and access
+to the existing CommonJS/native caches. The filename can be virtual, and trailing
+directory separators anchor within that directory. The nearest existing ancestor
+is canonicalized; no base is inferred from cwd. Relative paths, other schemes,
+URL queries/fragments, encoded separators, NUL, and non-string values throw
+TypeError without coercion. URL objects are not supported yet.
+
+Each factory call returns a distinct function; exported factory identity is shared
+by ESM, CommonJS, and private module aliases. No anchor source is read or executed,
+no ghost main module is created, and require(ESM) remains rejected. `node:module`,
+loader hooks, and compile-cache APIs are absent. See the
+[factory walkthrough](commonjs.md#require-factories-for-esm).
 
 ## `rustyjs:timers`
 

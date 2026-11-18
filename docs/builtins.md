@@ -1,7 +1,9 @@
 # Built-in modules
 
-`rustyjs:timers` is the first native ESM module. It exports the runtime's existing
-timer functions without adding a second scheduler or changing their contracts.
+`rustyjs:timers` exports the runtime's existing timer functions without adding a
+second scheduler or changing their contracts. `rustyjs:module` exports
+`createRequire` for explicit CommonJS access from ESM; see the
+[factory contract](commonjs.md#require-factories-for-esm).
 
 ```js
 import { sleep, setTimeout, clearTimeout } from 'rustyjs:timers';
@@ -79,6 +81,9 @@ permission boundary. These functions still operate in their owning runtime.
 Synthetic modules have no user source body, so this module has no observable
 `import.meta` object. File modules keep their existing URL and entrypoint metadata.
 CLI entrypoints remain filenames; `--module rustyjs:timers` is not an entry form.
+The registry declares names per built-in identity and keeps the original native
+values in one map. Both native modules use this common ownership/evaluation path;
+only their declared named exports are available, and neither has a default export.
 
 ## Local verification
 

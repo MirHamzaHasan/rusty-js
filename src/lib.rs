@@ -100,10 +100,9 @@ impl JsRuntime {
                 .ok_or_else(|| JsError::host("could not install Rusty.sleep", "<host>"))?;
             timers::install(scope, context)
                 .ok_or_else(|| JsError::host("could not install callback timers", "<host>"))?;
-            modules.borrow_mut().timer_exports = Some(
-                builtins::TimerExports::capture(scope, context).ok_or_else(|| {
-                    JsError::host("could not capture built-in timer exports", "<host>")
-                })?,
+            modules.borrow_mut().native_exports = Some(
+                builtins::NativeExports::capture(scope, context)
+                    .ok_or_else(|| JsError::host("could not capture built-in exports", "<host>"))?,
             );
             v8::Global::new(scope, context)
         };

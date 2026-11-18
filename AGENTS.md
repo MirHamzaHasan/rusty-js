@@ -114,8 +114,11 @@ metadata, canonical caches/cycles/retries, JSON, legacy file/directory probes,
 require/default conditions, and a default-only ESM bridge using the same cache.
 require(ESM) remains explicitly rejected. Never hold registry borrows across guest
 calls or exports getters; the synchronous load guard includes cached accessors.
-Keep `docs/commonjs.md` current. Next add a bounded rustyjs:module createRequire
-factory for ESM, then start the Phase 2 minimum Node surface with EventEmitter.
+Keep `docs/commonjs.md` current. rustyjs:module now exports createRequire for
+explicit absolute filename/file-URL string anchors, including virtual filenames.
+Its bound functions share the CommonJS/native caches without creating a main.
+URL objects and loader hooks remain unsupported. Next start the Phase 2 minimum
+Node surface with EventEmitter.
 No package manager or full Node compatibility is implied.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting

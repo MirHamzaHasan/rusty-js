@@ -22,6 +22,7 @@ ESM package resolver are implemented alongside the classic-script runner. See th
 | Exact/pattern exports, ordered import/default conditions, main/index entries | Implemented subset; formats and target paths are validated |
 | Fallback arrays and package-local #imports | Implemented with target/configuration error distinction and package scope boundaries |
 | CommonJS wrappers, require, cycles, retries, JSON, and default ESM bridge | Implemented subset; require(ESM), guessed named exports, and Node built-ins remain unsupported |
+| rustyjs:module createRequire | Implemented for explicit absolute filename/file-URL string anchors, including virtual bases |
 
 ## Validation on 2026-11-18
 
@@ -172,13 +173,39 @@ catchable stack limit before the host's 64-level load guard; the context remains
 usable in the tested recovery case. No fatal-error recovery claim is made.
 
 See [CommonJS loading](commonjs.md) for limitations. Node globals/built-ins,
-require.cache hooks, guessed named exports, createRequire, and require(ESM) are
-not implemented. All checks ran locally; GitHub Actions stayed idle.
+require.cache hooks, guessed named exports, and require(ESM) remain unsupported.
+The following slice adds the require factory. All checks ran locally; GitHub
+Actions stayed idle.
 
-## Next slice: an explicit require factory for ESM
+## Require factory validation on 2026-11-19
 
-Expose a small `rustyjs:module` createRequire facility using the same bound require
-callbacks and cache. Define its file-path/file-URL base rules and verify it cannot
-silently fall back to cwd. Then proceed to the minimum Node surface, beginning
-with EventEmitter; keep full Node compatibility and package installation outside
-the current scope.
+Local macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0:
+
+- `cargo test --locked`: 84 passed: 18 library, 15 general CLI, 14 CommonJS CLI,
+  16 module CLI, and 21 package CLI tests. The new symlink-base case is Unix-only.
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
+- `cargo run --locked -- examples/commonjs/factory.mjs`: printed
+  `created require: 1` after checking shared require/ESM default identity.
+- Markdown links and whitespace: valid across twelve project documents.
+
+`rustyjs:module` uses the same generic captured-export registry as native timers.
+Each factory call creates a new bound require while retaining shared caches and
+main metadata. Absolute/file-URL string bases can be virtual: normalization and
+nearest-existing-ancestor canonicalization establish an explicit anchor without
+reading source or consulting cwd. ESM's ordinary referrer rules remain intact.
+
+Tests cover factory/native identity in ESM and CJS, JSON/cache reuse, directory
+and nonexistent filename bases, relative `..` through missing directories,
+package/private lookup, later host turns, symlink/encoded names, unchanged main,
+and strict argument/URL validation. URL objects and Node loader hooks are not
+implemented. All checks remain local; GitHub CI stayed idle.
+
+## Next slice: Phase 2 EventEmitter
+
+Begin the minimum Node surface with synchronous EventEmitter behavior: ordered
+listeners, once/removal semantics, reentrancy, symbols, and error events. Build
+only the surface that the runtime can test and explain; package installation,
+full Node compatibility, and the later AI/native-domain facilities retain their
+separate roadmap stages.

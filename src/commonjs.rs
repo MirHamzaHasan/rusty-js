@@ -2,8 +2,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+use url::Url;
 
 use crate::async_ops::SharedState;
 use crate::builtins::{self, Builtin};
@@ -165,7 +167,8 @@ fn resolve(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
         let base = Path::new(referrer)
             .parent()
             .ok_or_else(|| JsError::host("require has no file base", referrer))?;
-        return packages::legacy_require(&base.join(path), referrer).map(ModuleId::File);
+        return packages::legacy_require(&normalize_absolute(&base.join(path)), referrer)
+            .map(ModuleId::File);
     }
     packages::resolve_mode(specifier, referrer, LoadMode::Require)
 }
@@ -243,7 +246,7 @@ fn load_builtin<'s>(
     if let Some(cached) = cached {
         return Some(cached);
     }
-    let object = builtins::commonjs_object(scope)?;
+    let object = builtins::commonjs_object(scope, builtin)?;
     state
         .borrow_mut()
         .builtins
@@ -275,6 +278,131 @@ fn bound_require<'s>(
         .unwrap_or_else(|| v8::undefined(scope).into());
     put(scope, function.into(), "main", main)?;
     Some(function)
+}
+
+/// Normalize an explicit absolute path without consulting the process cwd.
+fn normalize_absolute(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            part => normalized.push(part.as_os_str()),
+        }
+    }
+    if path
+        .as_os_str()
+        .to_string_lossy()
+        .chars()
+        .last()
+        .is_some_and(std::path::is_separator)
+    {
+        normalized.push("");
+    }
+    normalized
+}
+
+/// A filename anchor need not be a file that has been loaded or exists.
+fn require_base(input: &str) -> Result<PathBuf, String> {
+    let (path, directory) = if Path::new(input).is_absolute() {
+        (
+            PathBuf::from(input),
+            input.chars().last().is_some_and(std::path::is_separator),
+        )
+    } else {
+        let url = Url::parse(input)
+            .map_err(|_| "createRequire expects an absolute filename or file URL string")?;
+        if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
+            return Err(
+                "createRequire file URLs cannot have a query, fragment, or another scheme".into(),
+            );
+        }
+        let encoded = url.path().to_ascii_lowercase();
+        if encoded.contains("%2f") || encoded.contains("%5c") {
+            return Err("createRequire rejects encoded path separators".into());
+        }
+        let directory = url.path().ends_with('/');
+        (
+            url.to_file_path()
+                .map_err(|_| "createRequire file URL is not a local path")?,
+            directory,
+        )
+    };
+    if path.as_os_str().to_string_lossy().contains('\0') {
+        return Err("createRequire rejects NUL paths".into());
+    }
+    let mut normalized = normalize_absolute(&path);
+    if directory || normalized.file_name().is_none() {
+        normalized.push("__rustyjs_require__.cjs");
+    }
+    let mut ancestor = normalized.as_path();
+    let mut missing = Vec::new();
+    loop {
+        match std::fs::canonicalize(ancestor) {
+            Ok(mut resolved) => {
+                if !missing.is_empty() && !resolved.is_dir() {
+                    return Err("createRequire base parent is not a directory".into());
+                }
+                for part in missing.into_iter().rev() {
+                    resolved.push(part);
+                }
+                if resolved.to_str().is_none() {
+                    return Err("createRequire base must be representable as UTF-8".into());
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                missing.push(
+                    ancestor
+                        .file_name()
+                        .ok_or("createRequire base has no filename")?
+                        .to_os_string(),
+                );
+                ancestor = ancestor
+                    .parent()
+                    .ok_or("createRequire base has no absolute ancestor")?;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "cannot anchor createRequire at {}: {error}",
+                    ancestor.display()
+                ));
+            }
+        }
+    }
+}
+
+pub(crate) fn create_require(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut result: v8::ReturnValue,
+) {
+    let base = v8::Local::<v8::String>::try_from(args.get(0))
+        .ok()
+        .map(|input| input.to_rust_string_lossy(scope))
+        .ok_or_else(|| "createRequire expects an absolute filename or file URL string".to_owned())
+        .and_then(|input| require_base(&input));
+    let path = match base {
+        Ok(path) => path,
+        Err(message) => {
+            if let Some(message) = v8::String::new(scope, &message) {
+                let error = v8::Exception::type_error(scope, message);
+                scope.throw_exception(error);
+            }
+            return;
+        }
+    };
+    let Some(filename) = v8::String::new(scope, &path.to_string_lossy()) else {
+        return;
+    };
+    let Some(state) = scope.get_slot::<SharedCommonJs>().cloned() else {
+        return;
+    };
+    if let Some(require) = bound_require(scope, filename, &state) {
+        result.set(require.into());
+    }
 }
 
 pub(crate) fn load<'s>(
