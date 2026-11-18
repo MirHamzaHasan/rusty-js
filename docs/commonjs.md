@@ -112,20 +112,63 @@ Native require objects are likewise ordinary mutable cached objects; modifying
 their properties does not rewrite global functions or ESM native bindings.
 
 Node-style error codes, require.cache mutation, custom extension hooks,
-module.parent/children/paths, ESM createRequire, synchronous require(ESM), Node
+module.parent/children/paths, synchronous require(ESM), Node
 built-ins, and broader Node globals are not implemented yet. Host IO and source
 compilation remain synchronous. There are no execution-time or memory limits.
+
+## Require factories for ESM
+
+```js
+import { createRequire } from 'rustyjs:module';
+const require = createRequire(import.meta.url);
+const counter = require('./counter.js');
+```
+
+The native `rustyjs:module` built-in exposes one named export, `createRequire`.
+CommonJS can obtain the same factory with `require('rustyjs:module')`. Each call
+creates a distinct require function but shares the runtime's module/native caches.
+No synthetic anchor module is loaded, no source at that filename is executed, and
+the factory does not invent a require.main for an ESM entrypoint.
+
+Only primitive absolute filename strings and file-URL strings are accepted.
+Relative paths and other objects (including URL-like objects and boxed strings)
+throw TypeError without invoking conversion hooks or href getters. The runtime
+does not have a URL class yet; URL-object support is deferred to that surface.
+URL queries, fragments, encoded separators, NUL, and non-local file URLs are
+rejected. Native absolute path strings remain literal filesystem paths.
+
+A base filename need not exist. The host normalizes its absolute components and
+canonicalizes the nearest existing ancestor, retaining the virtual suffix. A
+trailing native separator or file-URL slash means a directory base and adds an
+internal filename anchor. The resulting path must be representable in UTF-8.
+Neither normalization nor later resolution falls back to cwd.
+
+Relative require paths are normalized before filesystem probing, so a virtual
+base can use `../` to reach an existing module even when intermediate virtual
+directories do not exist. Bare package and #imports lookup accepts the explicit
+require anchor without requiring it to be a source file. ESM resolution still
+requires its ordinary existing referrer file. Package conditions, format checks,
+JSON parsing, require.resolve, error behavior, and require(ESM) rejection are
+otherwise the same as module-local require.
+
+The built-in registry now stores named native exports by built-in identity.
+Synthetic ESM evaluation and CommonJS object creation read the same captured
+function handles; mutating a CommonJS exports object cannot rewrite ESM bindings.
+All roots are released with the module map before isolate teardown.
 
 ## Run and verify locally
 
 ```sh
 cargo run --locked -- examples/commonjs/main.cjs
 cargo run --locked -- examples/commonjs/esm.mjs
+cargo run --locked -- examples/commonjs/factory.mjs
 ```
 
 The first prints `CommonJS: 1` then `shared counter: 2`, proving require/import
 share the same counter. The second starts a fresh runtime and prints
 `ESM default: 1`.
+The factory example prints `created require: 1` after comparing require and ESM
+default identity.
 
 Tests cover wrapper receiver/arguments/scope, metadata, exports rebinding and
 replacement, cache identity, circular partial exports, JSON/probes/main/index
@@ -134,3 +177,7 @@ exports, original exceptions, failed-module retries, exact syntax locations,
 cached-getter recursion, prototype setters, invalid arguments, ESM rejection,
 bound require from later callbacks, BOM/hashbangs, cancellation/reuse, repaired
 source, and incompatible mode re-entry.
+Factory tests add ESM/CommonJS export identity, JSON and native cache reuse,
+virtual native/file-URL bases, directory bases, package/private lookup, symlink and
+encoded-name handling, scope lifetime after host awaits, unchanged main metadata,
+and strict non-coercing validation.

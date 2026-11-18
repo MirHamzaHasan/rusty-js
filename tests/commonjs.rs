@@ -198,3 +198,44 @@ fn host_metadata_ignores_inherited_guest_setters_and_readonly_failure_is_catchab
     );
     project.succeeds("main.cjs", "for(const key of ['exports','loaded','filename','id','require','main','resolve']) Object.defineProperty(Object.prototype,key,{configurable:true,get(){throw Error('inherited getter');},set(){throw Error('inherited setter');}}); if (require('./child') !== 42) throw Error('metadata poisoning'); try {require('./readonly.cjs'); throw Error('readonly loaded accepted');} catch(error) {if (!error.message.includes('module metadata')) throw error;} console.log('metadata safe');", b"metadata safe\n");
 }
+
+#[test]
+fn create_require_from_esm_shares_modules_builtins_and_json_without_a_ghost_main() {
+    let project = Project::new();
+    project.write("value.cjs", "globalThis.factoryRuns = (globalThis.factoryRuns ?? 0) + 1; module.exports = {value:42, main: require.main};");
+    project.write("data.json", "{\"value\":84}");
+    project.succeeds("main.mjs", "import {createRequire} from 'rustyjs:module'; import value from './value.cjs'; const a = createRequire(import.meta.url); const b = createRequire(import.meta.url); if (a === b || a('./value.cjs') !== value || value.main !== undefined || a.main !== undefined || factoryRuns !== 1 || a('rustyjs:module').createRequire !== createRequire || a('./data').value !== 84) throw Error('factory cache/main'); const timers = await import('rustyjs:timers'); if (a('rustyjs:timers').sleep !== timers.sleep) throw Error('factory native identity'); await timers.sleep(0); if (a('./value.cjs') !== b('./value.cjs') || !a.resolve('./value.cjs').endsWith('value.cjs')) throw Error('factory lifetime'); console.log('factory', value.value);", b"factory 42\n");
+}
+
+#[test]
+fn create_require_virtual_filenames_resolve_relative_packages_and_private_maps() {
+    let project = Project::new();
+    project.write("package.json", r##"{"imports":{"#value":"./value.cjs"}}"##);
+    project.write("value.cjs", "module.exports = 42;");
+    project.write(
+        "node_modules/package/package.json",
+        r#"{"exports":{"require":"./index.cjs"}}"#,
+    );
+    project.write("node_modules/package/index.cjs", "module.exports = 84;");
+    project.succeeds("main.mjs", "import {createRequire} from 'rustyjs:module'; const base = import.meta.url.replace('/main.mjs','/missing/deep/virtual.cjs'); const req = createRequire(base); if (req('../../value.cjs') !== 42 || req('#value') !== 42 || req('package') !== 84) throw Error('virtual anchor'); const directory = createRequire(import.meta.url.replace('main.mjs','')); if (directory('./value.cjs') !== 42) throw Error('directory anchor'); console.log('virtual bases');", b"virtual bases\n");
+    let native =
+        serde_json::to_string(&project.0.join("missing/deep/native.cjs").to_string_lossy())
+            .unwrap();
+    project.succeeds("native.mjs", &format!("import {{createRequire}} from 'rustyjs:module'; const req = createRequire({native}); console.log(req('../../value.cjs'), req('package'));"), b"42 84\n");
+}
+
+#[test]
+fn create_require_validates_strings_and_file_urls_without_guest_coercion() {
+    let project = Project::new();
+    project.succeeds("main.mjs", "import {createRequire} from 'rustyjs:module'; for (const base of [undefined,42,{},new String(import.meta.url),{get href(){throw Error('href getter');},toString(){throw Error('coerced');}},'./relative.cjs','https://example.invalid/a','file:///tmp/a?query','file:///tmp/a#hash','file:///tmp/a%2fb','file:///tmp/a%5cb','file:///tmp/a%00b',import.meta.url + '/child.cjs']) { try { createRequire(base); throw Error('invalid base accepted'); } catch(error) { if (!(error instanceof TypeError)) throw error; } } console.log('factory validation');", b"factory validation\n");
+    project.succeeds("main.cjs", "const {createRequire} = require('rustyjs:module'); const req = createRequire(__filename); if (req.main !== module || req('rustyjs:module').createRequire !== createRequire) throw Error('CJS factory identity'); console.log('CJS factory');", b"CJS factory\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn create_require_canonicalizes_symlink_ancestors_and_preserves_encoded_names() {
+    let project = Project::new();
+    project.write("space # café/value.cjs", "module.exports = 42;");
+    std::os::unix::fs::symlink(project.0.join("space # café"), project.0.join("linked")).unwrap();
+    project.succeeds("main.mjs", "import {createRequire} from 'rustyjs:module'; const physical = createRequire(import.meta.url.replace('main.mjs','space%20%23%20caf%C3%A9/virtual.cjs')); const linked = createRequire(import.meta.url.replace('main.mjs','linked/virtual.cjs')); if (physical.resolve('./value.cjs') !== linked.resolve('./value.cjs') || physical('./value.cjs') !== 42) throw Error('canonical factory base'); console.log('factory symlink');", b"factory symlink\n");
+}

@@ -200,7 +200,7 @@ fn resolve_package(specifier: &str, referrer: &str, mode: LoadMode) -> Result<Pa
             referrer,
         ));
     }
-    let base = canonical_file(Path::new(referrer), referrer)?;
+    let base = referrer_path(referrer, mode)?;
     if let Some(scope) = nearest_scope(&base, referrer)?
         && scope.value.get("name").and_then(Value::as_str) == Some(&name)
         && scope
@@ -620,7 +620,7 @@ fn resolve_imports(specifier: &str, referrer: &str, mode: LoadMode) -> Result<Mo
     {
         return Err(fail("invalid package import specifier"));
     }
-    let base = canonical_file(Path::new(referrer), referrer)?;
+    let base = referrer_path(referrer, mode)?;
     let manifest = nearest_scope(&base, referrer)?.ok_or_else(|| {
         fail(&format!(
             "package import {specifier:?} is not defined; no package scope"
@@ -670,6 +670,16 @@ fn resolve_imports(specifier: &str, referrer: &str, mode: LoadMode) -> Result<Mo
         error.origin = referrer.into();
         error
     })
+}
+
+fn referrer_path(referrer: &str, mode: LoadMode) -> Result<PathBuf, JsError> {
+    if mode == LoadMode::Require && Path::new(referrer).is_absolute() {
+        // Bound require data comes from a loaded canonical module or createRequire's
+        // explicit absolute anchor; a virtual anchor is not a source file to read.
+        Ok(PathBuf::from(referrer))
+    } else {
+        canonical_file(Path::new(referrer), referrer)
+    }
 }
 
 fn validate_target(target: &str) -> Result<(), String> {

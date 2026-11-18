@@ -28,6 +28,8 @@ patterns, fallback arrays, ordered import/default conditions, self-reference, an
 package-local `#imports`. CommonJS adds module-local `require`, circular caches,
 JSON loading, and default-only ESM imports. Broader Node compatibility remains
 unimplemented.
+ES modules can use `createRequire(import.meta.url)` from `rustyjs:module` to
+access that same CommonJS loader and cache.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -47,6 +49,7 @@ cargo run --locked -- examples/modules/builtins.mjs
 cargo run --locked -- examples/packages/main.mjs
 cargo run --locked -- examples/packages/maps.mjs
 cargo run --locked -- examples/commonjs/main.cjs
+cargo run --locked -- examples/commonjs/factory.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```

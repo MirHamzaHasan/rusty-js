@@ -42,7 +42,9 @@ cache. Packages must already exist on disk; RustyJS never downloads dependencies
 - `#imports` targets that reference another `#name` are unsupported, so alias maps
   cannot recurse. Ordinary module cycles still use V8's graph semantics. Other
   URL schemes, package-manager aliases, and custom conditions remain unsupported.
-  Inline `<eval>` has no file base for package lookup or `#imports`.
+  Inline `<eval>` has no implicit file base for package lookup or `#imports`.
+  An explicit createRequire anchor can provide one without executing that base
+  filename; see the [factory contract](commonjs.md#require-factories-for-esm).
 - `.mjs` and `.js` with nearest package.json `"type": "module"` use ESM.
   `.cjs` and other `.js` files use CommonJS; ESM imports expose their default only.
   Require supports JSON as well, but ESM JSON imports remain unsupported.
@@ -112,7 +114,8 @@ supported alternative.
 
 1. The module resolver recognizes built-ins and explicit file references first.
    Bare names reach `packages::resolve`, which validates package/subpath syntax
-   and requires an existing file referrer. No lookup depends on the process cwd.
+   and requires an existing file referrer for ESM. Require also accepts its
+   factory's explicit virtual anchor. No lookup depends on the process cwd.
 2. Package self-reference is checked against the nearest scope. Otherwise the
    resolver walks ancestor directories, skipping redundant `node_modules` levels,
    and stops at the nearest installed package. Read errors do not silently become

@@ -56,10 +56,16 @@ pub(crate) struct ModuleMap {
     requests: Vec<ImportRequest>,
     waiters: Vec<ImportWaiter>,
     main: Option<ModuleId>,
-    pub(crate) timer_exports: Option<builtins::TimerExports>,
+    pub(crate) native_exports: Option<builtins::NativeExports>,
 }
 
 impl ModuleMap {
+    pub(crate) fn builtin_for_module(&self, module: v8::Local<v8::Module>) -> Option<Builtin> {
+        self.entries.iter().find_map(|(id, entry)| match id {
+            ModuleId::Builtin(builtin) if entry.module == module => Some(*builtin),
+            _ => None,
+        })
+    }
     pub(crate) fn is_source_module(&self, scope: &v8::PinScope, path: &Path) -> bool {
         self.entries
             .get(&ModuleId::File(path.to_path_buf()))
@@ -82,7 +88,7 @@ impl ModuleMap {
         self.entries.clear();
         self.edges.clear();
         self.main = None;
-        self.timer_exports = None;
+        self.native_exports = None;
     }
 
     fn rollback(&mut self, staged: &[ModuleId]) {
@@ -817,7 +823,7 @@ mod tests {
             js.execute("import('rustyjs:timers').then(async timers => { globalThis.nativeTimers = timers; await timers.sleep(2147483647); globalThis.unexpected = true; });", "<eval>").unwrap();
             assert!(tokio::time::timeout(std::time::Duration::from_millis(10), js.run_event_loop()).await.is_err());
             assert!(js.state.borrow().operations.is_empty());
-            assert!(js.modules.borrow().timer_exports.is_some());
+            assert!(js.modules.borrow().native_exports.is_some());
             js.execute("globalThis.Rusty = null; globalThis.setTimeout = null; import('rustyjs:timers').then(async timers => { if (timers !== nativeTimers || globalThis.unexpected) throw Error('lost cached native module'); await timers.sleep(0); await new Promise(resolve => timers.setTimeout(resolve, 0)); });", "<eval>").unwrap();
             js.run_event_loop().await.unwrap();
         });
