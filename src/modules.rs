@@ -384,10 +384,11 @@ pub(crate) fn canonical_file(path: &Path, origin: &str) -> Result<PathBuf, JsErr
 
 fn resolve_specifier(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
     let fail = |message: &str| JsError::host(message, referrer);
-    if specifier.starts_with("rustyjs:") {
-        return Builtin::resolve(specifier)
-            .map(ModuleId::Builtin)
-            .ok_or_else(|| fail(&format!("unknown built-in module {specifier:?}")));
+    if let Some(builtin) = Builtin::resolve(specifier) {
+        return Ok(ModuleId::Builtin(builtin));
+    }
+    if specifier.starts_with("rustyjs:") || specifier.starts_with("node:") {
+        return Err(fail(&format!("unknown built-in module {specifier:?}")));
     }
     let path = Path::new(specifier);
     let url = if specifier.starts_with("file:") {

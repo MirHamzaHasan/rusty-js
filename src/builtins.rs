@@ -1,4 +1,4 @@
-//! Native ESM exports captured before guest code can replace global properties.
+//! Built-in exports captured before guest code can replace global properties.
 
 use crate::modules::SharedModules;
 use std::collections::HashMap;
@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub(crate) enum Builtin {
     Timers,
     Module,
+    Events,
 }
 
 impl Builtin {
@@ -14,6 +15,7 @@ impl Builtin {
         match specifier {
             "rustyjs:timers" => Some(Self::Timers),
             "rustyjs:module" => Some(Self::Module),
+            "rustyjs:events" | "node:events" | "events" => Some(Self::Events),
             _ => None,
         }
     }
@@ -22,6 +24,7 @@ impl Builtin {
         match self {
             Self::Timers => "rustyjs:timers",
             Self::Module => "rustyjs:module",
+            Self::Events => "rustyjs:events",
         }
     }
 
@@ -29,6 +32,7 @@ impl Builtin {
         match self {
             Self::Timers => &TIMER_NAMES,
             Self::Module => &["createRequire"],
+            Self::Events => &["default", "EventEmitter"],
         }
     }
 }
@@ -60,11 +64,19 @@ impl NativeExports {
         }
         let create_require = v8::Function::new(scope, crate::commonjs::create_require)?;
         let create_require: v8::Local<v8::Value> = create_require.into();
+        let events = crate::events::create(scope)?;
         Some(Self(HashMap::from([
             (Builtin::Timers, functions),
             (
                 Builtin::Module,
                 vec![v8::Global::new(scope, create_require)],
+            ),
+            (
+                Builtin::Events,
+                vec![
+                    v8::Global::new(scope, events),
+                    v8::Global::new(scope, events),
+                ],
             ),
         ])))
     }
@@ -86,6 +98,9 @@ pub(crate) fn commonjs_object<'s>(
             .map(|function| v8::Local::new(scope, function))
             .collect::<Vec<_>>()
     };
+    if builtin == Builtin::Events {
+        return v8::Local::<v8::Object>::try_from(functions[0]).ok();
+    }
     let object = v8::Object::new(scope);
     for (name, function) in builtin.export_names().iter().zip(functions) {
         let key = v8::String::new(scope, name)?;

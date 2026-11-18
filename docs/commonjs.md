@@ -33,7 +33,8 @@ This does not imply full Node package compatibility.
   namespace while function objects are shared.
 - Module metadata includes id, filename, loaded, exports, and require. Each bound
   require has main and resolve. require.cache, extension hooks, module.parent and
-  module.children, Node globals, and Node built-in aliases are separate work.
+  module.children and broader Node globals/built-ins are separate work.
+  EventEmitter is available through events/node:events; see [events](events.md).
   The first uncached explicit CommonJS entry is main (id `.`); cached modules do
   not get new wrapper metadata when a library caller enters them again. Modules
   imported only through ESM have no CommonJS main.
@@ -113,7 +114,7 @@ their properties does not rewrite global functions or ESM native bindings.
 
 Node-style error codes, require.cache mutation, custom extension hooks,
 module.parent/children/paths, synchronous require(ESM), Node
-built-ins, and broader Node globals are not implemented yet. Host IO and source
+other built-ins, and broader Node globals are not implemented yet. Host IO and source
 compilation remain synchronous. There are no execution-time or memory limits.
 
 ## Require factories for ESM

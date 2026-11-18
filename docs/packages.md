@@ -37,7 +37,8 @@ cache. Packages must already exist on disk; RustyJS never downloads dependencies
   self-reference. Its `imports` object defines package-local `#names` with exact
   keys, patterns, arrays, and conditions. Local targets are relative to the package
   root; external package targets resolve from the manifest's dependency location.
-  `rustyjs:*` targets share built-in module identity. A nested manifest or
+  Registered `rustyjs:*`, node:events, and events targets share built-in identity.
+  A nested manifest or
   `node_modules` boundary prevents accidental inheritance of another scope's map.
 - `#imports` targets that reference another `#name` are unsupported, so alias maps
   cannot recurse. Ordinary module cycles still use V8's graph semantics. Other

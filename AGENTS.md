@@ -117,8 +117,15 @@ calls or exports getters; the synchronous load guard includes cached accessors.
 Keep `docs/commonjs.md` current. rustyjs:module now exports createRequire for
 explicit absolute filename/file-URL string anchors, including virtual filenames.
 Its bound functions share the CommonJS/native caches without creating a main.
-URL objects and loader hooks remain unsupported. Next start the Phase 2 minimum
-Node surface with EventEmitter.
+URL objects and loader hooks remain unsupported.
+
+Phase 2 begins with bundled-JS EventEmitter, exposed through rustyjs:events,
+node:events and events. ESM default/named and CJS constructor routes share identity.
+Keep `docs/events.md` and `docs/phase-2.md` current. This is synchronous V8-side
+listener logic with only warning IO in Rust; do not imply a native/JS speedup.
+Capture rejections, EventTarget, async events utilities, and other Node built-ins
+remain separate tasks. Next implement the Buffer byte/encoding/ownership slice
+before streams or filesystem APIs.
 No package manager or full Node compatibility is implied.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
