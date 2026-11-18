@@ -18,8 +18,9 @@ and available stack traces. It explicitly drains Promise microtasks and exposes
 its context usable after a caught guest error. The CLI runs until host work is idle.
 
 Callback timers (`setTimeout`/`setInterval` and their clear functions) run on Tokio
-deadlines with callbacks on the isolate thread. Static local ES modules support
-relative imports, caching, cycles, and host-backed top-level await.
+deadlines with callbacks on the isolate thread. Local ES modules support static
+and dynamic imports, file URLs, caching, cycles, host-backed top-level await, and
+`import.meta.url` / `import.meta.main` metadata.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -34,6 +35,7 @@ cargo run --locked -- examples/hello.js
 cargo run --locked -- examples/async.js
 cargo run --locked -- examples/timers.js
 cargo run --locked -- examples/modules/main.mjs
+cargo run --locked -- examples/modules/dynamic.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```

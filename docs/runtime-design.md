@@ -8,8 +8,11 @@ recorded in `Cargo.lock`. Hamza authorized implementation assistance on 2026-11-
 
 Phase 1 now adds a separate isolate-local module map containing canonical paths,
 compiled module handles, resolved graph edges, and entry evaluation Promises.
-Active module evaluation is checked after microtask checkpoints and before idle
-exit. See [module design](modules.md) for cache lifetime and cancellation semantics.
+Dynamic import requests and resolver roots stay in that map on the owner thread.
+The host loads requests outside V8 callbacks, observes evaluation, settles import
+Promises, and checkpoints again. Active entry evaluation is checked after those
+steps and before idle exit. See [module design](modules.md) for cache lifetime,
+file URL semantics, metadata, idle recovery, and cancellation semantics.
 
 ## Decision: one thread owns JavaScript
 

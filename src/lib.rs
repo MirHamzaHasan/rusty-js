@@ -78,6 +78,9 @@ impl JsRuntime {
         let mut isolate = v8::Isolate::new(Default::default());
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         isolate.set_promise_reject_callback(async_ops::promise_rejected);
+        isolate.set_host_import_module_dynamically_callback(modules::import_dynamic);
+        isolate.set_host_import_module_with_phase_dynamically_callback(modules::import_with_phase);
+        isolate.set_host_initialize_import_meta_object_callback(modules::initialize_meta);
         let state = Rc::new(RefCell::new(HostState::default()));
         isolate.set_slot(state.clone());
         let modules = Rc::new(RefCell::new(modules::ModuleMap::default()));
@@ -207,6 +210,10 @@ impl JsRuntime {
             };
             // Neither a JS-only Promise nor a cleared timer keeps the loop alive.
             let Some(completion) = completion else {
+                if self.progress_imports(true)? {
+                    self.checkpoint()?;
+                    continue;
+                }
                 return self.check_modules(true);
             };
             prefer_host_completion = false;
@@ -305,7 +312,12 @@ impl JsRuntime {
     }
 
     fn checkpoint(&mut self) -> Result<(), JsError> {
-        self.checkpoint_promises()?;
+        loop {
+            self.checkpoint_promises()?;
+            if !self.progress_imports(false)? {
+                break;
+            }
+        }
         self.check_modules(false)
     }
 
