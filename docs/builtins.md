@@ -45,6 +45,11 @@ this module. That route shares the same cached namespace and function identities
 it does not create an additional built-in or a filesystem alias. See
 [package maps](packages.md).
 
+CommonJS `require('rustyjs:timers')` returns an ordinary cached object with the
+same five native function objects. Its object identity is separate from the ESM
+namespace; replacing a property on it does not replace the global function or
+the ESM binding. Package-private aliases work in require mode too.
+
 ## Implementation walkthrough
 
 1. Fresh-context setup installs native globals, then captures their original

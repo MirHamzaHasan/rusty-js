@@ -50,6 +50,30 @@ impl TimerExports {
     }
 }
 
+pub(crate) fn commonjs_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    let modules = scope.get_slot::<SharedModules>()?.clone();
+    let functions = {
+        let modules = modules.borrow();
+        modules
+            .timer_exports
+            .as_ref()?
+            .0
+            .iter()
+            .map(|function| v8::Local::new(scope, function))
+            .collect::<Vec<_>>()
+    };
+    let object = v8::Object::new(scope);
+    for (name, function) in TIMER_NAMES.into_iter().zip(functions) {
+        let key = v8::String::new(scope, name)?;
+        if object.create_data_property(scope, key.into(), function.into()) != Some(true) {
+            return None;
+        }
+    }
+    Some(object)
+}
+
 pub(crate) fn create<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     builtin: Builtin,

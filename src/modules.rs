@@ -60,6 +60,18 @@ pub(crate) struct ModuleMap {
 }
 
 impl ModuleMap {
+    pub(crate) fn is_source_module(&self, scope: &v8::PinScope, path: &Path) -> bool {
+        self.entries
+            .get(&ModuleId::File(path.to_path_buf()))
+            .is_some_and(|entry| v8::Local::new(scope, &entry.module).is_source_text_module())
+    }
+
+    pub(crate) fn file_for_module(&self, module: v8::Local<v8::Module>) -> Option<PathBuf> {
+        self.entries.iter().find_map(|(id, entry)| match id {
+            ModuleId::File(path) if entry.module == module => Some(path.clone()),
+            _ => None,
+        })
+    }
     pub fn cancel(&mut self) {
         self.active.clear();
         self.requests.clear();
@@ -97,6 +109,12 @@ impl JsRuntime {
         let result = canonical_file(path, &path.to_string_lossy())
             .and_then(|path| {
                 crate::packages::validate_format(&path, &path.to_string_lossy(), true)?;
+                if self.commonjs.borrow().contains(&path) {
+                    return Err(JsError::host(
+                        "file is already cached as CommonJS; cannot force ES module mode",
+                        &path.to_string_lossy(),
+                    ));
+                }
                 Ok(path)
             })
             .map(ModuleId::File)
@@ -123,7 +141,7 @@ impl JsRuntime {
         let mut staged = Vec::new();
         let mut evaluation_started = false;
         let result = (|| {
-            load_graph(scope, &self.modules, &entry, &mut staged)?;
+            load_graph(scope, &self.modules, &entry, &mut staged, watch)?;
             self.state.borrow_mut().origin = entry.origin().into_owned();
             let (module, already_started) = {
                 let modules = self.modules.borrow();
@@ -495,6 +513,7 @@ fn load_graph(
     modules: &SharedModules,
     entry: &ModuleId,
     staged: &mut Vec<ModuleId>,
+    force_entry_esm: bool,
 ) -> Result<(), JsError> {
     // An explicit worklist avoids recursive Rust stack growth and permits cycles.
     let mut pending = vec![entry.clone()];
@@ -519,6 +538,21 @@ fn load_graph(
                 continue;
             }
         };
+        if !(force_entry_esm && path == *entry)
+            && crate::packages::format(file, &origin)? == crate::packages::Format::CommonJs
+        {
+            let module = crate::commonjs::create_bridge(scope, file)
+                .ok_or_else(|| JsError::host("could not create CommonJS import bridge", &origin))?;
+            modules.borrow_mut().entries.insert(
+                path.clone(),
+                CachedModule {
+                    module: v8::Global::new(scope, module),
+                    evaluation: None,
+                },
+            );
+            staged.push(path);
+            continue;
+        }
         let source = std::fs::read_to_string(file)
             .map_err(|error| JsError::host(&format!("cannot read module: {error}"), &origin))?;
         let source = v8::String::new(scope, &source)
@@ -821,6 +855,54 @@ mod tests {
                 "verify.js",
             )
             .unwrap();
+        });
+    }
+
+    #[test]
+    fn commonjs_cache_survives_cancellation_and_failed_modules_can_be_repaired() {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let path = fixture.write("cached.cjs", "globalThis.commonJsRuns = (globalThis.commonJsRuns ?? 0) + 1; setTimeout(() => globalThis.unexpected = true, 2147483647); module.exports = 42; globalThis.savedRequire = require;");
+            let mut js = JsRuntime::new().unwrap();
+            js.execute_commonjs(&path).unwrap();
+            assert!(tokio::time::timeout(std::time::Duration::from_millis(10), js.run_event_loop()).await.is_err());
+            assert!(js.state.borrow().timers.is_empty());
+            assert!(js.commonjs.borrow().contains(&std::fs::canonicalize(&path).unwrap()));
+            fixture.write("cached.cjs", "throw Error('cached source re-executed');");
+            js.execute_commonjs(&path).unwrap();
+            js.execute("if (commonJsRuns !== 1 || globalThis.unexpected || savedRequire('./cached.cjs') !== 42 || typeof require !== 'undefined') throw Error('CJS cancellation/reuse');", "verify.js").unwrap();
+            let bad = fixture.write("failed.cjs", "throw Error('retry source');");
+            assert!(js.execute_commonjs(&bad).unwrap_err().message.contains("retry source"));
+            assert!(!js.commonjs.borrow().contains(&std::fs::canonicalize(&bad).unwrap()));
+            fixture.write("failed.cjs", "globalThis.repaired = 42;");
+            js.execute_commonjs(bad).unwrap();
+            js.execute("if (repaired !== 42) throw Error('CJS repair failed');", "verify.js").unwrap();
+            js.run_event_loop().await.unwrap();
+        });
+    }
+
+    #[test]
+    fn forced_esm_and_commonjs_cannot_reinterpret_an_already_cached_file() {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let esm = fixture.write("forced.js", "export const value = 42;");
+            let cjs = fixture.write("cached.js", "module.exports = 42;");
+            let mut js = JsRuntime::new().unwrap();
+            js.execute_module(&esm).unwrap();
+            assert!(
+                js.execute_commonjs(esm)
+                    .unwrap_err()
+                    .message
+                    .contains("use import()")
+            );
+            js.execute_commonjs(&cjs).unwrap();
+            assert!(
+                js.execute_module(cjs)
+                    .unwrap_err()
+                    .message
+                    .contains("already cached as CommonJS")
+            );
+            js.run_event_loop().await.unwrap();
         });
     }
 }

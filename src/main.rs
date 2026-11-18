@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const HELP: &str = "RustyJS — JavaScript on V8 with a Rust host\n\nUsage:\n  rustyjs <file.js|file.mjs>\n  rustyjs --module <file>\n  rustyjs -e <source>\n  rustyjs --help\n  rustyjs --version\n\n.mjs files use ES modules. Use --module for an ES module with another extension.\nUse -- before a filename beginning with '-'.\n";
+const HELP: &str = "RustyJS — JavaScript on V8 with a Rust host\n\nUsage:\n  rustyjs <file.js|file.mjs|file.cjs>\n  rustyjs --module <file>\n  rustyjs --commonjs <file>\n  rustyjs -e <source>\n  rustyjs --help\n  rustyjs --version\n\n.mjs files use ES modules; .cjs files use CommonJS.\nUse --module or --commonjs to select a file mode explicitly.\nUse -- before a filename beginning with '-'.\n";
 
 enum Command {
     Help,
@@ -11,11 +11,13 @@ enum Command {
     Eval(String),
     File(PathBuf),
     Module(PathBuf),
+    CommonJs(PathBuf),
 }
 
 enum Input {
     Script(String, String),
     Module(PathBuf),
+    CommonJs(PathBuf),
 }
 
 fn parse_args() -> Result<Command, String> {
@@ -26,6 +28,9 @@ fn parse_args() -> Result<Command, String> {
         Some("-v" | "--version") => Command::Version,
         Some("-m" | "--module") => Command::Module(PathBuf::from(
             args.next().ok_or("--module requires a filename")?,
+        )),
+        Some("--commonjs") => Command::CommonJs(PathBuf::from(
+            args.next().ok_or("--commonjs requires a filename")?,
         )),
         Some("-e" | "--eval") => {
             let source = args.next().ok_or("--eval requires JavaScript source")?;
@@ -59,6 +64,10 @@ fn run(command: Command) -> Result<(), String> {
         }
         Command::Eval(source) => Input::Script(source, "<eval>".into()),
         Command::Module(path) => Input::Module(path),
+        Command::CommonJs(path) => Input::CommonJs(path),
+        Command::File(path) if path.extension().is_some_and(|extension| extension == "cjs") => {
+            Input::CommonJs(path)
+        }
         Command::File(path) if path.extension().is_some_and(|extension| extension == "mjs") => {
             Input::Module(path)
         }
@@ -77,6 +86,7 @@ fn run(command: Command) -> Result<(), String> {
         match input {
             Input::Script(source, origin) => js.execute(&source, &origin),
             Input::Module(path) => js.execute_module(path),
+            Input::CommonJs(path) => js.execute_commonjs(path),
         }
         .map_err(|error| error.to_string())?;
         js.run_event_loop().await.map_err(|error| error.to_string())

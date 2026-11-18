@@ -25,8 +25,9 @@ The first built-in module, `rustyjs:timers`, exports the native sleep and callba
 timer functions through ESM.
 Installed ESM packages support `node_modules` lookup, scoped names, export
 patterns, fallback arrays, ordered import/default conditions, self-reference, and
-package-local `#imports`. CommonJS and
-broader Node compatibility remain unimplemented.
+package-local `#imports`. CommonJS adds module-local `require`, circular caches,
+JSON loading, and default-only ESM imports. Broader Node compatibility remains
+unimplemented.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -45,6 +46,7 @@ cargo run --locked -- examples/modules/dynamic.mjs
 cargo run --locked -- examples/modules/builtins.mjs
 cargo run --locked -- examples/packages/main.mjs
 cargo run --locked -- examples/packages/maps.mjs
+cargo run --locked -- examples/commonjs/main.cjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -72,8 +74,10 @@ the [async bridge walkthrough](docs/async-runtime.md), and
 Module behavior and limits are covered in the [module walkthrough](docs/modules.md)
 and [Phase 1 progress](docs/phase-1.md).
 Native module exports are documented in [built-in modules](docs/builtins.md).
-The [package contract](docs/packages.md) describes the supported ESM subset and
-its format rules: imported `.js` requires `"type": "module"`.
+The [package contract](docs/packages.md) describes resolution and format rules:
+`.mjs` and type-module `.js` use ESM; `.cjs` and untyped/commonjs `.js` use
+[CommonJS loading](docs/commonjs.md) when imported or required. CLI `.js` files
+still default to classic scripts unless a mode flag is supplied.
 
 ## Roadmap
 

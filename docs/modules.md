@@ -12,8 +12,9 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
 ## Entry and resolution contract
 
 - `.mjs` CLI entrypoints use module mode automatically. `--module file` or `-m file`
-  selects it explicitly for another extension. Other file entrypoints and `-e`
-  retain classic-script behavior.
+  selects it explicitly for another extension. `.cjs` selects CommonJS;
+  `--commonjs` selects that loader for another supported file. Other file
+  entrypoints and `-e` retain classic-script behavior.
 - Specifiers must start with `./` or `../`, be native OS absolute paths, or use
   `file:` URLs, apart from registered built-ins such as `rustyjs:timers` and
   bare packages resolved through `node_modules` or package self-reference.
@@ -26,11 +27,12 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
   than assigned separate cache identities. Extension guessing, directory indexes,
   and HTTP loading are absent for explicit file imports. For example,
   `./space%20%23%20caf%C3%A9.mjs` loads `space # café.mjs`.
-- Imports now require `.mjs`, or `.js` whose nearest package.json has
-  `"type": "module"`. This tightens the previous all-extensions-as-ESM rule.
-  CommonJS, JSON, other formats, import attributes, and source/deferred phases
-  are unsupported. Explicit module entrypoints can force another source extension
-  except `.cjs`; their imports still follow the format rules.
+- `.mjs` and `.js` with nearest package.json `"type": "module"` parse as ESM.
+  `.cjs` and other `.js` targets use a default-only CommonJS import bridge backed
+  by the same cache as require. JSON imports, other formats, import attributes,
+  and source/deferred phases are unsupported. Explicit module entrypoints can
+  force another source extension except `.cjs`, unless it is already cached as
+  CommonJS. See the [CommonJS contract](commonjs.md).
 - Package lookup supports exact/pattern exports, fallback arrays, package-local
   `#imports`, ordered import/default conditions, main entries, and subpaths.
   See the [package contract](packages.md) for the supported
@@ -54,6 +56,9 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
    its canonical filename. Files are currently read synchronously.
    Built-in targets instead create synthetic modules without reading source; see
    the [native module walkthrough](builtins.md).
+   CommonJS targets create default-only synthetic modules. Their bodies and require
+   dependencies are loaded synchronously during evaluation, rather than scanned
+   as static ESM requests.
 3. The compiled `Global<Module>` is cached before its imports are visited. A cycle
    can therefore refer back to the same module instead of causing repeated loads
    or unbounded recursive Rust calls.
@@ -130,6 +135,9 @@ happens before evaluation; it does not undo JavaScript side effects.
 Cancelling host work stops actively watching module evaluation and clears host
 resolver/timer roots plus queued and pending dynamic import resolvers. Their
 caller Promises remain pending. Module-cache handles remain intentional ownership.
+Loaded CommonJS module objects also remain cached and usable; failed CommonJS
+requires evict their own entries. ESM bridge evaluation failures still follow the
+ESM cache's sticky-failure rule described above.
 A cancelled module awaiting a cancelled host Promise may remain pending in V8;
 re-entering it without new host work reports the idle-await error. Use a fresh
 runtime to restart that graph. Other scripts can still use the existing context.
@@ -157,6 +165,9 @@ dynamic waiter cleanup, and file URLs in static and inline imports.
 Package tests cover installed and self-referenced ESM graphs, exact/pattern
 exports, fallback arrays, private imports, format boundaries, metadata errors,
 path validation, and retry after repair.
+CommonJS tests cover wrappers, cycles, JSON, mode conditions, bridge identity and
+snapshots, original exceptions, retries, recursion guards, poisoned metadata,
+bound requires, cancellation, and incompatible cache modes.
 The ordinary script, Promise, and callback-timer suites remain in the same run.
 
 This is a trusted local-file loader. It does not impose a filesystem sandbox,

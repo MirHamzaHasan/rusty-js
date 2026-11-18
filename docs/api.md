@@ -17,7 +17,9 @@ cargo run --locked -- -e 'Rusty.sleep(10).then(() => console.log("done"))'
 | --- | --- |
 | `rustyjs file.js` | Execute one UTF-8 classic script |
 | `rustyjs file.mjs` | Load and evaluate a static local ES module graph |
+| `rustyjs file.cjs` | Load and execute a CommonJS entrypoint |
 | `rustyjs --module file` or `-m file` | Select module mode explicitly, including for a `.js` entrypoint |
+| `rustyjs --commonjs file` | Select the CommonJS loader; ESM-format files remain rejected |
 | `rustyjs -e source` or `--eval source` | Execute inline source using `<eval>` as its origin |
 | `rustyjs -- file.js` | Treat the following argument as a filename, including a leading `-` |
 | `rustyjs --help` or `-h` | Print usage |
@@ -29,7 +31,7 @@ reads, uncaught synchronous exceptions, and unhandled Promise rejections produce
 stderr diagnostics and status 1. It reports the first failure for that turn.
 
 Script return values are ignored. Additional script arguments, stdin execution,
-CommonJS, and a REPL are not implemented.
+and a REPL are not implemented.
 
 ## ES modules
 
@@ -39,8 +41,9 @@ names. Relative references resolve against the defining file and use URL percent
 (`./space%20%23.mjs` addresses `space #.mjs`).
 Native absolute paths are literal filesystem paths. URL queries, fragments, and
 encoded separators are rejected. Files are canonicalized for identity and must
-exist. Imported files must be `.mjs` or `.js` with nearest package.json
-`"type": "module"`; CommonJS, JSON, and other imported formats are rejected.
+exist. `.mjs` and `.js` with nearest package.json `"type": "module"` use ESM.
+`.cjs` and other `.js` files use CommonJS with a default-only ESM bridge.
+JSON and other imported formats remain rejected; JSON can be required.
 Explicit file imports do not guess extensions or directory indexes.
 Import attributes and non-evaluation phases are rejected.
 
@@ -52,7 +55,7 @@ patterns, fallback arrays, package-local `#imports`, ordered
 retry a selected missing file or unavailable dependency. `#imports` supports
 relative files, installed package aliases, and `rustyjs:*` built-ins using the
 nearest package scope; direct `#`-to-`#` alias chains remain unsupported. Custom
-conditions, package installation, and CommonJS are absent. Unsupported or blocked
+conditions and package installation are absent. Unsupported or blocked
 entries fail without falling back to a parent package version. See the
 [package contract](packages.md) for target validation and format rules.
 
@@ -80,6 +83,26 @@ relative import bases must name existing files.
 dependencies and modules loaded only by classic scripts have `false`. Metadata is
 created once by V8, so a later library entry call does not rewrite existing
 metadata. `import.meta.resolve` is absent. See the [module contract](modules.md).
+
+## CommonJS
+
+`.cjs` files and `--commonjs` entrypoints receive module-local `require`,
+`exports`, `module`, `__filename`, and `__dirname`. No global require is installed
+for classic scripts or ES modules. `module.exports` is the cached export value;
+cycles can observe partial exports and failed loads can retry. `require.main`,
+`require.resolve`, and basic module metadata are supported.
+
+Relative/absolute require paths are literal and support `.js`/`.json` extension
+probes, legacy directory main/index lookup, and JSON parsing. `.cjs` must be
+explicit. Package and #imports resolution uses require/default conditions instead
+of import/default. Export/imports targets stay exact without file fallback.
+
+ESM imports expose only `default` from a CommonJS module and use the same backing
+cache as require. Mutating the captured exports object is shared; reassigning
+module.exports later does not update an evaluated ESM snapshot. `require(ESM)` is
+rejected with guidance to use dynamic import. Full Node error codes, cache
+mutation hooks, ESM createRequire, and Node built-ins are absent. See the
+[CommonJS walkthrough](commonjs.md) for lifetime, retry, and cancellation rules.
 
 ## `rustyjs:timers`
 
@@ -173,6 +196,7 @@ The [timer walkthrough](timers.md) explains scheduling and cleanup.
 | `JsRuntime::new()` | Initialize V8 once per process, then create a private isolate and context |
 | `execute(source, origin)` | Compile/run a classic script and complete its microtask checkpoint; queue host work without waiting for it |
 | `execute_module(path)` | Prepare/link/evaluate a local module graph and checkpoint its initial reactions, including dynamic import requests; queue host work needed by top-level await |
+| `execute_commonjs(path)` | Execute a CommonJS entry using its persistent module cache and checkpoint; queued host work drains through the same event loop |
 | `run_event_loop().await` | Start queued Rust futures, settle their Promises on the isolate thread, and continue until no host work remains |
 | `cancel_pending()` | Discard queued host work, callback timers, and dynamic import waiters, releasing their persistent roots before the event loop starts |
 | `JsError` | Owned message, origin, optional line/column, and optional stack text |
