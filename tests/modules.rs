@@ -116,3 +116,46 @@ fn uncaught_import_failure_is_reported_and_inline_import_has_no_relative_base() 
         assert!(!error.contains("panicked"), "{error}");
     }
 }
+
+#[test]
+fn builtin_timers_share_static_dynamic_and_reexport_identity() {
+    succeeds("builtins.mjs", b"built-in timers 2\n");
+}
+
+#[test]
+fn builtin_exports_survive_global_replacement_before_first_import() {
+    succeeds("builtin-classic.js", b"captured native timers\n");
+}
+
+#[test]
+fn inline_scripts_can_import_builtins_without_a_file_base() {
+    let output = run(&[
+        "-e",
+        "import('rustyjs:timers').then(async ({sleep}) => { await sleep(0); console.log('inline built-in'); })",
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"inline built-in\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn builtin_resolution_and_link_failures_are_controlled_and_recoverable() {
+    succeeds("builtin-errors.mjs", b"caught built-in failures\n");
+    for (file, message) in [
+        ("builtin-unknown.mjs", "unknown built-in module"),
+        (
+            "builtin-missing-export.mjs",
+            "does not provide an export named 'default'",
+        ),
+    ] {
+        let output = run(&[&fixture(file)]);
+        assert_eq!(output.status.code(), Some(1));
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains(message), "{error}");
+        assert!(!error.contains("panicked"), "{error}");
+    }
+}

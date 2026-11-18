@@ -1,14 +1,31 @@
-//! Initial local-file ESM graph. File loading is synchronous; evaluation may await host work.
+//! Cached file and built-in ESM graphs. File reads are synchronous; evaluation may await host work.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use url::Url;
 
+use crate::builtins::{self, Builtin};
 use crate::{JsError, JsRuntime, caught_error, message_error};
 
 pub(crate) type SharedModules = Rc<RefCell<ModuleMap>>;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ModuleId {
+    File(PathBuf),
+    Builtin(Builtin),
+}
+
+impl ModuleId {
+    fn origin(&self) -> Cow<'_, str> {
+        match self {
+            Self::File(path) => path.to_string_lossy(),
+            Self::Builtin(builtin) => Cow::Borrowed(builtin.specifier()),
+        }
+    }
+}
 
 struct CachedModule {
     module: v8::Global<v8::Module>,
@@ -23,7 +40,7 @@ struct ImportRequest {
 
 struct ImportWaiter {
     resolver: v8::Global<v8::PromiseResolver>,
-    path: PathBuf,
+    path: ModuleId,
 }
 
 struct LoadFailure {
@@ -33,12 +50,13 @@ struct LoadFailure {
 
 #[derive(Default)]
 pub(crate) struct ModuleMap {
-    entries: HashMap<PathBuf, CachedModule>,
-    edges: HashMap<(PathBuf, String), PathBuf>,
-    active: HashSet<PathBuf>,
+    entries: HashMap<ModuleId, CachedModule>,
+    edges: HashMap<(ModuleId, String), ModuleId>,
+    active: HashSet<ModuleId>,
     requests: Vec<ImportRequest>,
     waiters: Vec<ImportWaiter>,
-    main: Option<PathBuf>,
+    main: Option<ModuleId>,
+    pub(crate) timer_exports: Option<builtins::TimerExports>,
 }
 
 impl ModuleMap {
@@ -52,9 +70,10 @@ impl ModuleMap {
         self.entries.clear();
         self.edges.clear();
         self.main = None;
+        self.timer_exports = None;
     }
 
-    fn rollback(&mut self, staged: &[PathBuf]) {
+    fn rollback(&mut self, staged: &[ModuleId]) {
         for path in staged {
             self.entries.remove(path);
         }
@@ -74,10 +93,14 @@ impl JsRuntime {
     /// Start a local-file ESM graph, then drain its initial microtasks.
     /// Call run_event_loop to finish host-backed top-level await and callback work.
     pub fn execute_module(&mut self, path: impl AsRef<Path>) -> Result<(), JsError> {
-        let result = self
-            .start_module(path.as_ref(), true)
-            .map(|_| ())
-            .map_err(|failure| failure.diagnostic);
+        let path = path.as_ref();
+        let result = canonical_file(path, &path.to_string_lossy())
+            .map(ModuleId::File)
+            .and_then(|entry| {
+                self.start_module(entry, true)
+                    .map_err(|failure| failure.diagnostic)
+            })
+            .map(|_| ());
         let checkpoint = self.checkpoint();
         let result = result.and(checkpoint);
         if result.is_err() {
@@ -86,8 +109,8 @@ impl JsRuntime {
         result
     }
 
-    fn start_module(&mut self, path: &Path, watch: bool) -> Result<PathBuf, LoadFailure> {
-        let origin = path.to_string_lossy().into_owned();
+    fn start_module(&mut self, entry: ModuleId, watch: bool) -> Result<ModuleId, LoadFailure> {
+        let origin = entry.origin().into_owned();
         self.state.borrow_mut().origin = origin.clone();
         v8::scope!(let scope, &mut self.isolate);
         let context = v8::Local::new(scope, &self.context);
@@ -96,9 +119,8 @@ impl JsRuntime {
         let mut staged = Vec::new();
         let mut evaluation_started = false;
         let result = (|| {
-            let entry = canonical_file(path, &origin)?;
             load_graph(scope, &self.modules, &entry, &mut staged)?;
-            self.state.borrow_mut().origin = entry.to_string_lossy().into_owned();
+            self.state.borrow_mut().origin = entry.origin().into_owned();
             let (module, already_started) = {
                 let modules = self.modules.borrow();
                 let cached = modules
@@ -113,7 +135,7 @@ impl JsRuntime {
             if module.get_status() == v8::ModuleStatus::Uninstantiated
                 && module.instantiate_module(scope, resolve) != Some(true)
             {
-                return Err(caught_error(scope, &entry.to_string_lossy()));
+                return Err(caught_error(scope, &entry.origin()));
             }
             evaluation_started = true;
             if watch && self.modules.borrow().main.is_none() {
@@ -122,11 +144,11 @@ impl JsRuntime {
             if !already_started {
                 if module.get_status() == v8::ModuleStatus::Errored {
                     scope.throw_exception(module.get_exception());
-                    return Err(caught_error(scope, &entry.to_string_lossy()));
+                    return Err(caught_error(scope, &entry.origin()));
                 }
                 let value = module
                     .evaluate(scope)
-                    .ok_or_else(|| caught_error(scope, &entry.to_string_lossy()))?;
+                    .ok_or_else(|| caught_error(scope, &entry.origin()))?;
                 let promise = v8::Local::<v8::Promise>::try_from(value).map_err(|_| {
                     JsError::host("V8 did not return a module evaluation Promise", &origin)
                 })?;
@@ -171,7 +193,7 @@ impl JsRuntime {
                     diagnostic,
                     exception: None,
                 })
-                .and_then(|path| self.start_module(&path, false));
+                .and_then(|path| self.start_module(path, false));
             match outcome {
                 Ok(path) => self.modules.borrow_mut().waiters.push(ImportWaiter {
                     resolver: request.resolver,
@@ -263,7 +285,7 @@ impl JsRuntime {
             };
             progressed = true;
             if settled != Some(true) {
-                return Err(caught_error(scope, &waiter.path.to_string_lossy()));
+                return Err(caught_error(scope, &waiter.path.origin()));
             }
         }
         Ok(progressed)
@@ -292,23 +314,21 @@ impl JsRuntime {
                     .and_then(|entry| entry.evaluation.as_ref())
                     .map(|promise| v8::Local::new(scope, promise))
             }
-            .ok_or_else(|| {
-                JsError::host("missing module evaluation Promise", &path.to_string_lossy())
-            })?;
+            .ok_or_else(|| JsError::host("missing module evaluation Promise", &path.origin()))?;
             match promise.state() {
                 v8::PromiseState::Fulfilled => {
                     self.modules.borrow_mut().active.remove(&path);
                 }
                 v8::PromiseState::Rejected => {
                     let message = v8::Exception::create_message(scope, promise.result(scope));
-                    let mut error = message_error(scope, message, &path.to_string_lossy());
+                    let mut error = message_error(scope, message, &path.origin());
                     error.message = format!("Module evaluation failed: {}", error.message);
                     return Err(error);
                 }
                 v8::PromiseState::Pending if idle => {
                     return Err(JsError::host(
                         "module evaluation is pending with no active host work",
-                        &path.to_string_lossy(),
+                        &path.origin(),
                     ));
                 }
                 v8::PromiseState::Pending => {}
@@ -334,8 +354,13 @@ fn canonical_file(path: &Path, origin: &str) -> Result<PathBuf, JsError> {
     Ok(path)
 }
 
-fn resolve_specifier(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> {
+fn resolve_specifier(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
     let fail = |message: &str| JsError::host(message, referrer);
+    if specifier.starts_with("rustyjs:") {
+        return Builtin::resolve(specifier)
+            .map(ModuleId::Builtin)
+            .ok_or_else(|| fail(&format!("unknown built-in module {specifier:?}")));
+    }
     let path = Path::new(specifier);
     let url = if specifier.starts_with("file:") {
         Url::parse(specifier).map_err(|_| fail("invalid file module URL"))?
@@ -368,7 +393,7 @@ fn resolve_specifier(specifier: &str, referrer: &str) -> Result<PathBuf, JsError
     let path = url
         .to_file_path()
         .map_err(|_| fail("file URL cannot be converted to a local path"))?;
-    canonical_file(&path, referrer)
+    canonical_file(&path, referrer).map(ModuleId::File)
 }
 
 pub(crate) fn import_dynamic<'s>(
@@ -434,7 +459,10 @@ pub(crate) extern "C" fn initialize_meta(
         else {
             return;
         };
-        let Ok(url) = Url::from_file_path(path) else {
+        let ModuleId::File(file) = path else {
+            return;
+        };
+        let Ok(url) = Url::from_file_path(file) else {
             return;
         };
         (url.to_string(), modules.main.as_ref() == Some(path))
@@ -458,17 +486,33 @@ pub(crate) extern "C" fn initialize_meta(
 fn load_graph(
     scope: &mut v8::PinnedRef<'_, v8::TryCatch<v8::HandleScope>>,
     modules: &SharedModules,
-    entry: &Path,
-    staged: &mut Vec<PathBuf>,
+    entry: &ModuleId,
+    staged: &mut Vec<ModuleId>,
 ) -> Result<(), JsError> {
     // An explicit worklist avoids recursive Rust stack growth and permits cycles.
-    let mut pending = vec![entry.to_path_buf()];
+    let mut pending = vec![entry.clone()];
     while let Some(path) = pending.pop() {
         if modules.borrow().entries.contains_key(&path) {
             continue;
         }
-        let origin = path.to_string_lossy();
-        let source = std::fs::read_to_string(&path)
+        let origin = path.origin();
+        let file = match &path {
+            ModuleId::File(file) => file,
+            ModuleId::Builtin(builtin) => {
+                let module = builtins::create(scope, *builtin)
+                    .ok_or_else(|| JsError::host("could not create built-in module", &origin))?;
+                modules.borrow_mut().entries.insert(
+                    path.clone(),
+                    CachedModule {
+                        module: v8::Global::new(scope, module),
+                        evaluation: None,
+                    },
+                );
+                staged.push(path);
+                continue;
+            }
+        };
+        let source = std::fs::read_to_string(file)
             .map_err(|error| JsError::host(&format!("cannot read module: {error}"), &origin))?;
         let source = v8::String::new(scope, &source)
             .ok_or_else(|| JsError::host("could not allocate module source", &origin))?;
@@ -721,6 +765,19 @@ mod tests {
             js.execute_module(path).unwrap();
             js.run_event_loop().await.unwrap();
             js.execute(&format!("import('{url}').then(module => {{ if (module.value !== 42 || urlRuns !== 1) throw Error('inline URL import'); }});"), "<eval>").unwrap();
+            js.run_event_loop().await.unwrap();
+        });
+    }
+
+    #[test]
+    fn builtin_cache_survives_cancellation_and_globals_are_not_export_backing() {
+        runtime().block_on(async {
+            let mut js = JsRuntime::new().unwrap();
+            js.execute("import('rustyjs:timers').then(async timers => { globalThis.nativeTimers = timers; await timers.sleep(2147483647); globalThis.unexpected = true; });", "<eval>").unwrap();
+            assert!(tokio::time::timeout(std::time::Duration::from_millis(10), js.run_event_loop()).await.is_err());
+            assert!(js.state.borrow().operations.is_empty());
+            assert!(js.modules.borrow().timer_exports.is_some());
+            js.execute("globalThis.Rusty = null; globalThis.setTimeout = null; import('rustyjs:timers').then(async timers => { if (timers !== nativeTimers || globalThis.unexpected) throw Error('lost cached native module'); await timers.sleep(0); await new Promise(resolve => timers.setTimeout(resolve, 0)); });", "<eval>").unwrap();
             js.run_event_loop().await.unwrap();
         });
     }

@@ -98,8 +98,10 @@ Phase 1 now supports local-file static and dynamic ES module graphs, canonical
 identity, caching, linking/evaluation, cycles and host-backed top-level await.
 Dynamic failures reject catchable Promises; import.meta exposes canonical file
 URLs and an entrypoint flag. Keep `docs/modules.md` and `docs/phase-1.md` current.
-The next slice is the `rustyjs:*` built-in namespace. Package resolution and
-CommonJS remain separate tasks.
+The `rustyjs:timers` synthetic module exports the original native sleep and callback
+timer functions through the same static/dynamic cache. Keep `docs/builtins.md`
+current. The next slice is package-aware ESM resolution; define its contract
+before adding node_modules lookup or package.json exports. CommonJS stays separate.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
 `refs/heads/main`: pull requests required, force pushes and deletion blocked, no

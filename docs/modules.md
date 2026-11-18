@@ -15,7 +15,8 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
   selects it explicitly for another extension. Other file entrypoints and `-e`
   retain classic-script behavior.
 - Specifiers must start with `./` or `../`, be native OS absolute paths, or use
-  `file:` URLs. Relative imports resolve against the importing file's canonical
+  `file:` URLs, apart from registered built-in names such as `rustyjs:timers`.
+  Relative imports resolve against the importing file's canonical
   URL, independent of the process working directory. The `url` crate performs URL
   conversion; relative references are percent decoded. Native absolute paths stay
   literal filesystem paths.
@@ -38,11 +39,14 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
 ## Walkthrough
 
 1. `execute_module` canonicalizes the entry path and enters the runtime's context
-   with a V8 `TryCatch`. Canonical paths are module identity; symlink aliases and
-   equivalent path spellings share one cached module.
+   with a V8 `TryCatch`. File identities use canonical paths; built-ins use an
+   explicit registered ID. Symlink aliases and equivalent file spellings share
+   one cached module, while built-ins cannot collide with file paths.
 2. `load_graph` uses a Rust worklist rather than recursive file-loading calls.
    Each uncached file is read and compiled with a module `ScriptOrigin` containing
    its canonical filename. Files are currently read synchronously.
+   Built-in targets instead create synthetic modules without reading source; see
+   the [native module walkthrough](builtins.md).
 3. The compiled `Global<Module>` is cached before its imports are visited. A cycle
    can therefore refer back to the same module instead of causing repeated loads
    or unbounded recursive Rust calls.

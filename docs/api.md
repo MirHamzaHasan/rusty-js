@@ -34,8 +34,9 @@ CommonJS, and a REPL are not implemented.
 ## ES modules
 
 Static and dynamic imports accept explicit `./` / `../` references, native OS
-absolute paths, or `file:` URLs. Relative references resolve against the defining
-file and use URL percent decoding (`./space%20%23.mjs` addresses `space #.mjs`).
+absolute paths, `file:` URLs, or registered `rustyjs:*` names. Relative references
+resolve against the defining file and use URL percent decoding
+(`./space%20%23.mjs` addresses `space #.mjs`).
 Native absolute paths are literal filesystem paths. URL queries, fragments, and
 encoded separators are rejected. Files are canonicalized for identity and must
 exist; there is no extension/index guessing, bare-package lookup, or package.json
@@ -66,6 +67,23 @@ bases must name existing files.
 dependencies and modules loaded only by classic scripts have `false`. Metadata is
 created once by V8, so a later library entry call does not rewrite existing
 metadata. `import.meta.resolve` is absent. See the [module contract](modules.md).
+
+## `rustyjs:timers`
+
+```js
+import { sleep, setTimeout, clearTimeout, setInterval, clearInterval } from 'rustyjs:timers';
+await sleep(1);
+```
+
+These five named exports are the original native functions installed at runtime
+startup and have the same contracts as `Rusty.sleep` and the callback timer
+globals. Later assignments to global properties do not change module exports.
+Static imports, re-exports, and dynamic imports share one cached namespace.
+Inline code can dynamically import this module without a file base.
+
+There is no default export. Unknown names, aliases, subpaths, URL suffixes, and
+import attributes are rejected. `node:timers` and `node:timers/promises` are not
+implemented. See [built-in modules](builtins.md) for ownership and error details.
 
 ## `console.log(...values)`
 

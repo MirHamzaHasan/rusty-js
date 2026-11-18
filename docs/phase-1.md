@@ -1,10 +1,11 @@
 # Phase 1: module system
 
-## Current slice: local ES modules and dynamic imports
+## Current slice: file and built-in ES modules
 
-Local-file ESM, dynamic imports, and module metadata are implemented alongside
-the classic-script runner.
-See the [module walkthrough](modules.md) and [supported API](api.md).
+Local-file ESM, dynamic imports, module metadata, and the first native built-in
+are implemented alongside the classic-script runner. See the
+[module walkthrough](modules.md), [built-in design](builtins.md), and
+[supported API](api.md).
 
 | Capability | Status |
 | --- | --- |
@@ -16,7 +17,8 @@ See the [module walkthrough](modules.md) and [supported API](api.md).
 | Cached success/failure and preparation rollback | Implemented and tested |
 | Dynamic `import()` in modules and classic scripts | Implemented with shared cache, concurrent evaluation, and catchable failures |
 | `import.meta.url` and `import.meta.main` | Implemented with escaped canonical file URLs |
-| `rustyjs:*` built-ins, package resolution and exports | Planned |
+| `rustyjs:timers` built-in | Implemented with V8 synthetic modules and shared static/dynamic identity |
+| Package resolution and package.json exports | Planned |
 | CommonJS and mixed-module interoperability | Planned |
 
 ## Validation on 2026-11-18
@@ -62,9 +64,30 @@ caching, idle recovery through nested importers, and cancellation cleanup.
 All validation runs locally. The GitHub workflow is manual-only and is not
 triggered for this slice. No new cross-platform result is claimed.
 
-## Next slice: built-in module namespace
+## Built-in module validation on 2026-11-19
 
-Introduce a small `rustyjs:*` namespace, starting with the existing timer/Promise
-facilities rather than adding unrelated native features. It should have the same
-cache identity for static and dynamic imports and return proper module exports.
-Keep package lookup, CommonJS, HTTP imports, and disk code caches separate.
+On the same local macOS arm64 toolchain:
+
+- `cargo test --locked`: 46 passed: 15 library, 15 general CLI, 16 module CLI.
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
+- `cargo run --locked -- examples/modules/builtins.mjs`: prints
+  `native module timers completed` and exits normally.
+- Markdown links and whitespace: valid across ten project documents.
+
+The new slice uses a file/built-in identity enum throughout the existing cache and
+graph edges. It captures original native functions during context initialization
+and exports them from a synthetic module without consulting guest globals at
+evaluation time. Tests cover namespace/function identity, re-exports, imported
+timer behavior, inline imports, invalid names, missing exports, failed-link
+recovery, global property replacement, and cache reuse after cancellation.
+GitHub Actions remains idle; no CI checks were triggered.
+
+## Next slice: package-aware ESM resolution
+
+Define a small package resolution contract, then add bare-package lookup through
+node_modules and package.json entry/exports rules with explicit ESM format checks.
+Keep CommonJS, mixed-module execution, HTTP imports, disk caches, and full Node
+compatibility separate. An initial package loader must fail clearly when it meets
+unsupported formats rather than treating CommonJS as working ESM.

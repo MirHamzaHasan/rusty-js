@@ -21,6 +21,8 @@ Callback timers (`setTimeout`/`setInterval` and their clear functions) run on To
 deadlines with callbacks on the isolate thread. Local ES modules support static
 and dynamic imports, file URLs, caching, cycles, host-backed top-level await, and
 `import.meta.url` / `import.meta.main` metadata.
+The first built-in module, `rustyjs:timers`, exports the native sleep and callback
+timer functions through ESM.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -36,6 +38,7 @@ cargo run --locked -- examples/async.js
 cargo run --locked -- examples/timers.js
 cargo run --locked -- examples/modules/main.mjs
 cargo run --locked -- examples/modules/dynamic.mjs
+cargo run --locked -- examples/modules/builtins.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -62,6 +65,7 @@ the [async bridge walkthrough](docs/async-runtime.md), and
 [callback timer design](docs/timers.md).
 Module behavior and limits are covered in the [module walkthrough](docs/modules.md)
 and [Phase 1 progress](docs/phase-1.md).
+Native module exports are documented in [built-in modules](docs/builtins.md).
 
 ## Roadmap
 
