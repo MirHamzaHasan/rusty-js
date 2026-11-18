@@ -11,6 +11,56 @@ use crate::JsError;
 use crate::builtins::Builtin;
 use crate::modules::{ModuleId, canonical_file};
 
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum LoadMode {
+    Import,
+    Require,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Format {
+    Esm,
+    CommonJs,
+    Json,
+}
+
+pub(crate) fn format(file: &Path, origin: &str) -> Result<Format, JsError> {
+    match file.extension().and_then(|extension| extension.to_str()) {
+        Some("mjs") => Ok(Format::Esm),
+        Some("cjs") => Ok(Format::CommonJs),
+        Some("json") => Ok(Format::Json),
+        Some("js") => {
+            let is_module = nearest_scope(file, origin)?
+                .as_ref()
+                .and_then(|scope| scope.value.get("type"))
+                .is_some_and(|kind| kind == "module");
+            Ok(if is_module {
+                Format::Esm
+            } else {
+                Format::CommonJs
+            })
+        }
+        _ => Err(JsError::host(
+            &format!("unsupported imported module format: {}", file.display()),
+            origin,
+        )),
+    }
+}
+
+fn validate_mode(file: &Path, origin: &str, mode: LoadMode) -> Result<(), JsError> {
+    match (mode, format(file, origin)?) {
+        (LoadMode::Require, Format::Esm) => Err(JsError::host(
+            "require() of ES modules is not supported; use import()",
+            origin,
+        )),
+        (LoadMode::Import, Format::Json) => Err(JsError::host(
+            "JSON imports are not supported; JSON can be loaded with require()",
+            origin,
+        )),
+        _ => Ok(()),
+    }
+}
+
 struct Manifest {
     directory: PathBuf,
     value: Value,
@@ -78,32 +128,16 @@ pub(crate) fn validate_format(
     origin: &str,
     explicit_entry: bool,
 ) -> Result<(), JsError> {
-    match file.extension().and_then(|extension| extension.to_str()) {
-        Some("cjs") => Err(JsError::host("CommonJS (.cjs) is not supported", origin)),
-        Some("mjs") => Ok(()),
-        _ if explicit_entry => Ok(()),
-        Some("js") => {
-            if nearest_scope(file, origin)?
-                .as_ref()
-                .and_then(|scope| scope.value.get("type"))
-                .is_some_and(|kind| kind == "module")
-            {
-                Ok(())
-            } else {
-                Err(JsError::host(
-                    &format!(
-                        "CommonJS or untyped .js import is not supported: {}; use .mjs or package.json type module",
-                        file.display()
-                    ),
-                    origin,
-                ))
-            }
+    if explicit_entry {
+        if file.extension().is_some_and(|extension| extension == "cjs") {
+            return Err(JsError::host(
+                "a .cjs file cannot be forced into ES module mode",
+                origin,
+            ));
         }
-        _ => Err(JsError::host(
-            &format!("unsupported imported module format: {}", file.display()),
-            origin,
-        )),
+        return Ok(());
     }
+    validate_mode(file, origin, LoadMode::Import)
 }
 
 fn parse_specifier(specifier: &str, origin: &str) -> Result<(String, String), JsError> {
@@ -144,13 +178,21 @@ fn parse_specifier(specifier: &str, origin: &str) -> Result<(String, String), Js
 }
 
 pub(crate) fn resolve(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
-    if specifier.starts_with('#') {
-        return resolve_imports(specifier, referrer);
-    }
-    resolve_package(specifier, referrer).map(ModuleId::File)
+    resolve_mode(specifier, referrer, LoadMode::Import)
 }
 
-fn resolve_package(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> {
+pub(crate) fn resolve_mode(
+    specifier: &str,
+    referrer: &str,
+    mode: LoadMode,
+) -> Result<ModuleId, JsError> {
+    if specifier.starts_with('#') {
+        return resolve_imports(specifier, referrer, mode);
+    }
+    resolve_package(specifier, referrer, mode).map(ModuleId::File)
+}
+
+fn resolve_package(specifier: &str, referrer: &str, mode: LoadMode) -> Result<PathBuf, JsError> {
     let (name, subpath) = parse_specifier(specifier, referrer)?;
     if referrer == "<eval>" {
         return Err(JsError::host(
@@ -166,7 +208,7 @@ fn resolve_package(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> 
             .get("exports")
             .is_some_and(|exports| !exports.is_null())
     {
-        return resolve_in_package(&scope.directory, Some(&scope), &subpath, referrer);
+        return resolve_in_package(&scope.directory, Some(&scope), &subpath, referrer, mode);
     }
     for directory in base.parent().into_iter().flat_map(Path::ancestors) {
         if directory
@@ -177,7 +219,16 @@ fn resolve_package(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> 
         }
         let candidate = directory.join("node_modules").join(&name);
         match std::fs::metadata(&candidate) {
-            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error)
+                if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
+            {
+                if mode == LoadMode::Require
+                    && let Some(file) = require_file(&candidate, referrer)?
+                {
+                    return Ok(file);
+                }
+                continue;
+            }
             Err(error) => {
                 return Err(JsError::host(
                     &format!("cannot inspect package {}: {error}", candidate.display()),
@@ -185,6 +236,11 @@ fn resolve_package(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> 
                 ));
             }
             Ok(metadata) if !metadata.is_dir() => {
+                if mode == LoadMode::Require
+                    && let Some(file) = require_file(&candidate, referrer)?
+                {
+                    return Ok(file);
+                }
                 return Err(JsError::host(
                     &format!("package is not a directory: {}", candidate.display()),
                     referrer,
@@ -199,7 +255,7 @@ fn resolve_package(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> 
             )
         })?;
         let manifest = read_manifest(&root, referrer)?;
-        return resolve_in_package(&root, manifest.as_ref(), &subpath, referrer);
+        return resolve_in_package(&root, manifest.as_ref(), &subpath, referrer, mode);
     }
     Err(JsError::host(
         &format!("package {name:?} was not found in node_modules"),
@@ -212,6 +268,7 @@ fn resolve_in_package(
     manifest: Option<&Manifest>,
     subpath: &str,
     origin: &str,
+    mode: LoadMode,
 ) -> Result<PathBuf, JsError> {
     let fail = |message: &str| match manifest {
         Some(manifest) => manifest.error(message, origin),
@@ -239,7 +296,7 @@ fn resolve_in_package(
             None
         };
         match selected
-            .map(|(value, capture)| select_target(value, capture, 0, false))
+            .map(|(value, capture)| select_target(value, capture, 0, false, mode))
             .transpose()
             .map_err(|error| fail(&error.message()))?
         {
@@ -262,10 +319,29 @@ fn resolve_in_package(
     } else {
         "./index.js".to_owned()
     };
-    resolve_file_target(root, &target, origin)
+    if mode == LoadMode::Require
+        && manifest
+            .and_then(|manifest| manifest.value.get("exports"))
+            .is_none_or(Value::is_null)
+    {
+        let path = if subpath == "." {
+            root.to_path_buf()
+        } else {
+            validate_target(&target).map_err(|message| fail(&message))?;
+            target_path(root, &target, origin)?
+        };
+        let file = legacy_require(&path, origin)?;
+        if !file.starts_with(root) {
+            return Err(fail(
+                "package target escapes its canonical package directory",
+            ));
+        }
+        return Ok(file);
+    }
+    resolve_file_target(root, &target, origin, mode)
 }
 
-fn resolve_file_target(root: &Path, target: &str, origin: &str) -> Result<PathBuf, JsError> {
+fn target_path(root: &Path, target: &str, origin: &str) -> Result<PathBuf, JsError> {
     let fail = |message: &str| {
         JsError::host(
             &format!("{}: {message}", root.join("package.json").display()),
@@ -277,17 +353,105 @@ fn resolve_file_target(root: &Path, target: &str, origin: &str) -> Result<PathBu
         .map_err(|_| fail("invalid package directory"))?
         .join(target)
         .map_err(|_| fail("invalid package target URL"))?;
-    let file = url
-        .to_file_path()
-        .map_err(|_| fail("package target is not a local path"))?;
+    url.to_file_path()
+        .map_err(|_| fail("package target is not a local path"))
+}
+
+fn resolve_file_target(
+    root: &Path,
+    target: &str,
+    origin: &str,
+    mode: LoadMode,
+) -> Result<PathBuf, JsError> {
+    let file = target_path(root, target, origin)?;
     let file = canonical_file(&file, origin)?;
     if !file.starts_with(root) {
-        return Err(fail(
+        return Err(JsError::host(
             "package target escapes its canonical package directory",
+            origin,
         ));
     }
-    validate_format(&file, origin, false)?;
+    validate_mode(&file, origin, mode)?;
     Ok(file)
+}
+
+fn probe_require_file(path: &Path, origin: &str) -> Result<Option<PathBuf>, JsError> {
+    match std::fs::metadata(path) {
+        Err(error) if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            Ok(None)
+        }
+        Err(error) => Err(JsError::host(
+            &format!("cannot inspect {}: {error}", path.display()),
+            origin,
+        )),
+        Ok(metadata) if metadata.is_dir() => Ok(None),
+        Ok(_) => {
+            let file = canonical_file(path, origin)?;
+            validate_mode(&file, origin, LoadMode::Require)?;
+            Ok(Some(file))
+        }
+    }
+}
+
+fn require_file(path: &Path, origin: &str) -> Result<Option<PathBuf>, JsError> {
+    if let Some(file) = probe_require_file(path, origin)? {
+        return Ok(Some(file));
+    }
+    for extension in [".js", ".json", ".node"] {
+        let mut candidate = path.as_os_str().to_os_string();
+        candidate.push(extension);
+        if let Some(file) = probe_require_file(Path::new(&candidate), origin)? {
+            return Ok(Some(file));
+        }
+    }
+    Ok(None)
+}
+
+fn require_index(path: &Path, origin: &str) -> Result<Option<PathBuf>, JsError> {
+    for name in ["index.js", "index.json", "index.node"] {
+        if let Some(file) = probe_require_file(&path.join(name), origin)? {
+            return Ok(Some(file));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn legacy_require(path: &Path, origin: &str) -> Result<PathBuf, JsError> {
+    if let Some(file) = require_file(path, origin)? {
+        return Ok(file);
+    }
+    if path.is_dir() {
+        if let Some(manifest) = read_manifest(path, origin)?
+            && let Some(main) = manifest.value.get("main")
+        {
+            let main = main
+                .as_str()
+                .ok_or_else(|| manifest.error("main must be a string", origin))?;
+            let target = if main == "." || main == "./" {
+                path.to_path_buf()
+            } else {
+                let main = if main.starts_with("./") {
+                    main.to_owned()
+                } else {
+                    format!("./{main}")
+                };
+                target_path(path, &main, origin)?
+            };
+            if let Some(file) = require_file(&target, origin)? {
+                return Ok(file);
+            }
+            if let Some(file) = require_index(&target, origin)? {
+                return Ok(file);
+            }
+        }
+        if let Some(file) = require_index(path, origin)? {
+            return Ok(file);
+        }
+    }
+    Err(JsError::host(
+        &format!("cannot find CommonJS module {}", path.display()),
+        origin,
+    ))
 }
 
 enum Target {
@@ -362,6 +526,7 @@ fn select_target(
     capture: Option<&str>,
     depth: usize,
     internal: bool,
+    mode: LoadMode,
 ) -> Result<Target, TargetError> {
     if depth > 32 {
         return Err(TargetError::InvalidConfig(
@@ -388,7 +553,7 @@ fn select_target(
             }
             let mut last = Ok(Target::Unmatched);
             for item in items {
-                match select_target(item, capture, depth + 1, internal) {
+                match select_target(item, capture, depth + 1, internal, mode) {
                     Ok(Target::Unmatched) => {}
                     Ok(Target::Blocked) => last = Ok(Target::Blocked),
                     Ok(path) => return Ok(path),
@@ -410,8 +575,15 @@ fn select_target(
                 ));
             }
             for (condition, target) in conditions {
-                if condition == "import" || condition == "default" {
-                    match select_target(target, capture, depth + 1, internal)? {
+                if condition == "default"
+                    || condition
+                        == if mode == LoadMode::Import {
+                            "import"
+                        } else {
+                            "require"
+                        }
+                {
+                    match select_target(target, capture, depth + 1, internal, mode)? {
                         Target::Unmatched => {}
                         target => return Ok(target),
                     }
@@ -437,7 +609,7 @@ fn validate_mapped_target(target: &str, internal: bool) -> Result<(), String> {
         .map_err(|_| "imports target must be a ./ path, a package name, or a rustyjs: built-in; # aliases and other URLs are unsupported".into())
 }
 
-fn resolve_imports(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
+fn resolve_imports(specifier: &str, referrer: &str, mode: LoadMode) -> Result<ModuleId, JsError> {
     let fail = |message: &str| JsError::host(message, referrer);
     if referrer == "<eval>" {
         return Err(fail("package imports require a file referrer"));
@@ -467,7 +639,7 @@ fn resolve_imports(specifier: &str, referrer: &str) -> Result<ModuleId, JsError>
         .ok_or_else(|| fail("package imports requires an object map in the nearest scope"))?;
     let selected = match_mapping(map, specifier, true).map_err(|error| fail(&error.message()))?;
     let target = match selected
-        .map(|(value, capture)| select_target(value, capture, 0, true))
+        .map(|(value, capture)| select_target(value, capture, 0, true, mode))
         .transpose()
         .map_err(|error| fail(&error.message()))?
     {
@@ -479,7 +651,8 @@ fn resolve_imports(specifier: &str, referrer: &str) -> Result<ModuleId, JsError>
         }
     };
     if target.starts_with("./") {
-        return resolve_file_target(&manifest.directory, &target, referrer).map(ModuleId::File);
+        return resolve_file_target(&manifest.directory, &target, referrer, mode)
+            .map(ModuleId::File);
     }
     if target.starts_with("rustyjs:") {
         return Builtin::resolve(&target)
@@ -490,6 +663,7 @@ fn resolve_imports(specifier: &str, referrer: &str) -> Result<ModuleId, JsError>
     resolve_package(
         &target,
         &manifest.directory.join("package.json").to_string_lossy(),
+        mode,
     )
     .map(ModuleId::File)
     .map_err(|mut error| {

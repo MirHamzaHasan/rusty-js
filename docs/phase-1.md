@@ -21,7 +21,7 @@ ESM package resolver are implemented alongside the classic-script runner. See th
 | Scoped/unscoped node_modules lookup and self-reference | Implemented |
 | Exact/pattern exports, ordered import/default conditions, main/index entries | Implemented subset; formats and target paths are validated |
 | Fallback arrays and package-local #imports | Implemented with target/configuration error distinction and package scope boundaries |
-| CommonJS and mixed-module interoperability | Planned |
+| CommonJS wrappers, require, cycles, retries, JSON, and default ESM bridge | Implemented subset; require(ESM), guessed named exports, and Node built-ins remain unsupported |
 
 ## Validation on 2026-11-18
 
@@ -106,8 +106,8 @@ static/dynamic/direct-file identity, encoded names, format boundaries, bad
 metadata, unsupported exports, traversal, symlinks, and failure without parent
 fallback. A library test repairs a bad manifest and retries in the same context.
 
-Imports now require `.mjs` or `.js` with nearest `type: module`; unsupported and
-CommonJS formats fail before evaluation. This deliberately replaces the earlier
+At that slice, imports required `.mjs` or `.js` with nearest `type: module`;
+CommonJS formats failed before evaluation. This replaced the earlier
 all-extensions-as-ESM behavior. Explicit module entrypoints retain their source
 override except for `.cjs`. CLI `.js` files still default to classic mode.
 
@@ -140,10 +140,45 @@ file cycles retain ordinary V8 graph semantics. Native aliases are RustyJS-speci
 registered `rustyjs:*` names. The package contract records all retained omissions.
 All validation is local; GitHub Actions stayed idle.
 
-## Next slice: CommonJS execution and module boundaries
+## CommonJS validation on 2026-11-19
 
-Design and implement a bounded CommonJS loader with module-local require,
-module/exports wrapper semantics, circular-cache behavior, and useful filename
-diagnostics. Define ESM/CommonJS boundaries explicitly before advertising package
-compatibility. Keep package installation, HTTP imports, and full Node compatibility
-outside the current scope.
+Local macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0:
+
+- `cargo test --locked`: 80 passed: 18 library, 15 general CLI, 10 CommonJS CLI,
+  16 module CLI, and 21 package CLI tests. The existing Unix symlink cases stay
+  platform-specific.
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
+- `cargo run --locked -- examples/commonjs/main.cjs`: printed `CommonJS: 1`
+  followed by `shared counter: 2` after a host sleep and dynamic import.
+- `cargo run --locked -- examples/commonjs/esm.mjs`: printed `ESM default: 1`.
+- Markdown links and whitespace: valid across twelve project documents.
+
+The loader uses V8 compile_function with five module-local parameters and
+canonical-file cache roots inserted before execution. Failed loads evict their
+own entries; cycles and successful dependencies preserve identity. File/directory
+probes and require/default package conditions are distinct from exact import
+targets and import/default conditions. CommonJS imports now use default-only
+synthetic bridges; previous rejection tests were updated to verify the new
+format and identity behavior.
+
+Tests cover wrapper scope/receiver/metadata, exports mutation and reassignment,
+cycles, JSON and legacy probing, package conditions and native aliases, bridge
+identity/snapshots, errors/retries, exact syntax locations, re-entrant getters,
+poisoned prototypes, invalid arguments, ESM rejection, saved requires, hashbangs,
+cancellation, repaired source, and incompatible cache modes. V8 may reach its
+catchable stack limit before the host's 64-level load guard; the context remains
+usable in the tested recovery case. No fatal-error recovery claim is made.
+
+See [CommonJS loading](commonjs.md) for limitations. Node globals/built-ins,
+require.cache hooks, guessed named exports, createRequire, and require(ESM) are
+not implemented. All checks ran locally; GitHub Actions stayed idle.
+
+## Next slice: an explicit require factory for ESM
+
+Expose a small `rustyjs:module` createRequire facility using the same bound require
+callbacks and cache. Define its file-path/file-URL base rules and verify it cannot
+silently fall back to cwd. Then proceed to the minimum Node surface, beginning
+with EventEmitter; keep full Node compatibility and package installation outside
+the current scope.

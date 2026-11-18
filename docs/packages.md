@@ -2,7 +2,7 @@
 
 ## Resolution contract
 
-This slice adds installed ESM package loading, not package installation or full
+The runtime loads installed ESM and CommonJS packages without package installation or full
 Node compatibility. Static and dynamic imports use the same resolver and module
 cache. Packages must already exist on disk; RustyJS never downloads dependencies.
 
@@ -14,7 +14,7 @@ cache. Packages must already exist on disk; RustyJS never downloads dependencies
 - `exports` supports a string or array root entry, exact `.` / `./subpath` maps,
   single-wildcard keys, null blocking, and nested conditional objects. Active conditions are `import` and
   `default`, considered in manifest insertion order. Unknown conditions are skipped.
-  `node`, `require`, and `browser` are not active RustyJS conditions.
+  `require` loads use require/default instead; `node` and `browser` remain inactive.
 - Exact keys take precedence over patterns. Matching patterns prefer the longest
   prefix before `*`, then the longest suffix; captures must be nonempty and can
   contain multiple path segments. Every `*` in the selected target is replaced.
@@ -27,9 +27,12 @@ cache. Packages must already exist on disk; RustyJS never downloads dependencies
   `node_modules` segments, including encoded variants. Targets cannot escape the
   canonical package directory through symlinks. Queries/fragments are unsupported.
   The same target checks apply to main entries and legacy subpaths.
-- Without non-null `exports`, a package root uses an explicit string `main`, or
+- Without non-null `exports`, an ESM import of a package root uses an explicit string `main`, or
   `index.js` if `main` is absent. No extension guessing, directory indexes beyond
   that package-root default, or fallback from a broken `main` is performed.
+  CommonJS require additionally uses legacy file/directory probes, including
+  `.js`/`.json`, main directories, and index fallback for missing legacy main files.
+  These probes do not apply to selected exports/imports targets.
 - A nearest package scope with matching `name` and non-null `exports` supports
   self-reference. Its `imports` object defines package-local `#names` with exact
   keys, patterns, arrays, and conditions. Local targets are relative to the package
@@ -40,10 +43,12 @@ cache. Packages must already exist on disk; RustyJS never downloads dependencies
   cannot recurse. Ordinary module cycles still use V8's graph semantics. Other
   URL schemes, package-manager aliases, and custom conditions remain unsupported.
   Inline `<eval>` has no file base for package lookup or `#imports`.
-- Imported files must be `.mjs`, or `.js` with nearest package.json
-  `"type": "module"`. The scope search stops at `node_modules`; a parent app's
+- `.mjs` and `.js` with nearest package.json `"type": "module"` use ESM.
+  `.cjs` and other `.js` files use CommonJS; ESM imports expose their default only.
+  Require supports JSON as well, but ESM JSON imports remain unsupported.
+  The scope search stops at `node_modules`; a parent app's
   type cannot turn an untyped dependency into ESM. Nested manifests start a new
-  scope. There is no syntax detection or CommonJS, JSON, native-addon, or TS loader.
+  scope. There is no syntax detection, native-addon loader, or TS loader.
 - CLI `.js` entry behavior stays classic unless `--module` is supplied. An explicit
   module entry can force ESM source parsing for another extension, except `.cjs`;
   its imports still follow the format rules above.
@@ -124,7 +129,9 @@ supported alternative.
    percent encoding for names with spaces, Unicode, or `#`.
 5. Format validation uses the target file's nearest package scope, including nested
    manifests, rather than assuming that an exported file is ESM. `.mjs` remains
-   ESM even in a commonjs package. Explicit file imports use the same format check.
+   ESM even in a commonjs package; CommonJS files route through the default bridge
+   for imports and the synchronous loader for require. Explicit file imports use
+   the same format check. See the [CommonJS walkthrough](commonjs.md).
 6. `#imports` starts at the nearest manifest and uses the same matching/selection
    helpers. A relative target returns a file ID, a package alias reuses installed
    package resolution from the manifest, and a `rustyjs:*` alias returns a built-in
@@ -160,5 +167,5 @@ private imports, native aliases, manifest-relative external dependencies, nested
 scope boundaries, classic/inline behavior, and rejected alias cycles.
 
 These are RustyJS resolver tests, not evidence of broad Node package compatibility.
-CommonJS execution and real package test-suite compatibility remain separate
-milestones. All checks for this slice run locally; GitHub CI stays idle.
+Real package test-suite compatibility remains a separate milestone from the
+implemented CommonJS subset. All checks run locally; GitHub CI stays idle.

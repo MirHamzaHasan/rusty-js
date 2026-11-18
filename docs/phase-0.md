@@ -119,9 +119,10 @@ Validated locally on macOS arm64 with Rust/Cargo 1.97.1:
 
 ## Phase 1 handoff
 
-The initial Phase 0 surface is in place and the first local-file ESM graph slice is
-implemented. See [Phase 1 progress](phase-1.md). Bare package resolution, CommonJS,
-and broader Node compatibility remain later slices. Remote cross-platform CI remains unverified;
+The initial Phase 0 surface is in place. Phase 1 now includes file/package ESM,
+dynamic imports, native modules, package maps, and bounded CommonJS loading.
+See [Phase 1 progress](phase-1.md) for current evidence and remaining boundaries.
+Broader Node compatibility remains later work. Validation currently runs locally;
 the local evidence above does not establish Windows or Linux support.
 
 A current-thread runtime does not remove `tokio::spawn`'s `Send` bound. A `LocalSet`

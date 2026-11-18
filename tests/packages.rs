@@ -158,31 +158,24 @@ fn main_index_legacy_subpaths_and_self_reference_are_explicit() {
 }
 
 #[test]
-fn unsupported_commonjs_and_nested_scope_formats_fail_before_execution() {
+fn commonjs_imports_honor_nested_format_scopes_and_cjs_extension() {
     let project = Project::new();
     project.write("package.json", r#"{"type":"module"}"#);
     project.package("untyped", r#"{"main":"index.js"}"#);
-    project.write(
-        "node_modules/untyped/index.js",
-        "globalThis.badFormatExecuted = true;",
-    );
+    project.write("node_modules/untyped/index.js", "module.exports = 42;");
     project.package("typed", r#"{"type":"module","exports":"./main.js"}"#);
-    project.write("node_modules/typed/main.js", "import './nested/value.js';");
+    project.write(
+        "node_modules/typed/main.js",
+        "import value from './nested/value.js'; export {value};",
+    );
     project.write(
         "node_modules/typed/nested/package.json",
         r#"{"type":"commonjs"}"#,
     );
-    project.write(
-        "node_modules/typed/nested/value.js",
-        "globalThis.badFormatExecuted = true;",
-    );
+    project.write("node_modules/typed/nested/value.js", "module.exports = 84;");
     project.package("cjs", r#"{"exports":"./index.cjs"}"#);
-    project.write(
-        "node_modules/cjs/index.cjs",
-        "globalThis.badFormatExecuted = true;",
-    );
-    project.succeeds("for (const name of ['untyped', 'typed', 'cjs']) { try { await import(name); throw Error('accepted CommonJS'); } catch (error) { if (!(error instanceof TypeError) || !error.message.includes('CommonJS')) throw error; } } if (globalThis.badFormatExecuted) throw Error('executed unsupported format'); console.log('formats rejected');", b"formats rejected\n");
-    project.fails("import '../node_modules/cjs/index.cjs';", "CommonJS");
+    project.write("node_modules/cjs/index.cjs", "module.exports = 126;");
+    project.succeeds("import untyped from 'untyped'; import {value} from 'typed'; import cjs from 'cjs'; import direct from '../node_modules/cjs/index.cjs'; if (direct !== cjs) throw Error('CJS identity'); console.log(untyped,value,cjs);", b"42 84 126\n");
 }
 
 #[test]
@@ -261,7 +254,7 @@ fn nearest_package_failure_and_exact_files_do_not_guess_other_entries() {
     project.fails("import 'folder';", "not a regular file");
     project.package("json", r#"{"exports":"./data.json"}"#);
     project.write("node_modules/json/data.json", "{}");
-    project.fails("import 'json';", "unsupported imported module format");
+    project.fails("import 'json';", "JSON imports are not supported");
 }
 
 #[test]
@@ -387,10 +380,15 @@ fn array_selection_does_not_retry_missing_files_formats_or_bad_config() {
         "node_modules/choice/bad.cjs",
         "throw Error('executed CommonJS');",
     );
+    project.write("node_modules/choice/addon.node", "not a native addon");
     project.write("node_modules/choice/syntax.mjs", "export const = ;");
     for (targets, message) in [
         (r#"["./missing.mjs","./good.mjs"]"#, "missing.mjs"),
         (r#"["./bad.cjs","./good.mjs"]"#, "CommonJS"),
+        (
+            r#"["./addon.node","./good.mjs"]"#,
+            "unsupported imported module format",
+        ),
         (r#"["./syntax.mjs","./good.mjs"]"#, "SyntaxError"),
         (r#"[{"0":"./good.mjs"},"./good.mjs"]"#, "condition key"),
         (r#"[null,42]"#, "invalid package target"),

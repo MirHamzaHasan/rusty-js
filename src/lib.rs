@@ -2,6 +2,7 @@
 
 mod async_ops;
 mod builtins;
+mod commonjs;
 mod modules;
 mod packages;
 mod timers;
@@ -66,6 +67,7 @@ pub struct JsRuntime {
     context: v8::Global<v8::Context>,
     state: SharedState,
     modules: modules::SharedModules,
+    commonjs: commonjs::SharedCommonJs,
     isolate: v8::OwnedIsolate,
 }
 
@@ -87,6 +89,8 @@ impl JsRuntime {
         isolate.set_slot(state.clone());
         let modules = Rc::new(RefCell::new(modules::ModuleMap::default()));
         isolate.set_slot(modules.clone());
+        let commonjs = Rc::new(RefCell::new(commonjs::CommonJsState::default()));
+        isolate.set_slot(commonjs.clone());
         let context = {
             v8::scope!(let scope, &mut isolate);
             let context = v8::Context::new(scope, Default::default());
@@ -107,6 +111,7 @@ impl JsRuntime {
             context,
             state,
             modules,
+            commonjs,
             isolate,
         })
     }
@@ -350,8 +355,10 @@ impl Drop for JsRuntime {
     fn drop(&mut self) {
         self.state.borrow_mut().cancel();
         self.modules.borrow_mut().clear();
+        self.commonjs.borrow_mut().clear();
         self.isolate.remove_slot::<SharedState>();
         self.isolate.remove_slot::<modules::SharedModules>();
+        self.isolate.remove_slot::<commonjs::SharedCommonJs>();
     }
 }
 

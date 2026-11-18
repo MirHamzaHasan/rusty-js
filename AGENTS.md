@@ -103,12 +103,20 @@ timer functions through the same static/dynamic cache. Keep `docs/builtins.md`
 current. Package-aware ESM now handles node_modules, scoped names, self-reference,
 exact/pattern exports, fallback arrays, ordered import/default conditions,
 package-local #imports, and explicit main entries.
-Imported .js requires package.json type module; .cjs is rejected. Keep
+Imported .js uses package.json type: module means ESM, otherwise CommonJS; .cjs
+uses CommonJS. Keep
 `docs/packages.md` current. Arrays skip invalid target shapes, not missing selected
 files or dependencies. #imports aliases may target local files, packages, and
-native built-ins, but not another #alias. Next tackle CommonJS execution with
-explicit ESM interop and circular-cache rules as a separate slice. No package
-manager or full Node compatibility is implied.
+native built-ins, but not another #alias.
+
+CommonJS now supports .cjs / --commonjs entrypoints, module-local require and
+metadata, canonical caches/cycles/retries, JSON, legacy file/directory probes,
+require/default conditions, and a default-only ESM bridge using the same cache.
+require(ESM) remains explicitly rejected. Never hold registry borrows across guest
+calls or exports getters; the synchronous load guard includes cached accessors.
+Keep `docs/commonjs.md` current. Next add a bounded rustyjs:module createRequire
+factory for ESM, then start the Phase 2 minimum Node surface with EventEmitter.
+No package manager or full Node compatibility is implied.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
 `refs/heads/main`: pull requests required, force pushes and deletion blocked, no

@@ -19,6 +19,13 @@ Package lookup and format checks are plain Rust filesystem/JSON operations befor
 graph compilation; they return canonical file IDs to the same cache. The
 [package contract](packages.md) covers lookup order, export conditions, and limits.
 
+CommonJS adds another isolate-local cache of module objects, plus a bounded
+synchronous load stack. Module roots are inserted before wrapper evaluation for
+cycles and removed on failed loads. ESM CommonJS targets use synthetic default
+bridges backed by that same cache. No cache borrow survives guest execution,
+including exports getters; teardown clears both caches before V8 disposal.
+See the [CommonJS walkthrough](commonjs.md).
+
 ## Decision: one thread owns JavaScript
 
 Use a current-thread Tokio runtime and run V8 on that thread. The root async
