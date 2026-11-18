@@ -101,7 +101,7 @@ ESM imports expose only `default` from a CommonJS module and use the same backin
 cache as require. Mutating the captured exports object is shared; reassigning
 module.exports later does not update an evaluated ESM snapshot. `require(ESM)` is
 rejected with guidance to use dynamic import. Full Node error codes, cache
-mutation hooks and most Node built-ins remain absent beyond the events and Buffer subsets. See the
+mutation hooks and most Node built-ins remain absent beyond events, Buffer, and Writable. See the
 [CommonJS walkthrough](commonjs.md) for lifetime, retry, and cancellation rules.
 
 ## `rustyjs:module`
@@ -152,6 +152,15 @@ and fixed-width numeric reads/writes (including BigInt). New storage is always
 zeroed. One Buffer is limited to 64 MiB; this is not a runtime memory budget.
 See the [Buffer contract](buffer.md) for copying versus sharing, encodings,
 strict validation, unsupported APIs, and local correctness evidence.
+
+## Writable streams
+
+`node:stream`, `stream`, and `rustyjs:stream` export the same named Writable
+constructor; CommonJS returns `{Writable}`. It extends EventEmitter and provides
+serialized write/end hooks, byte/object modes, high-water-mark backpressure and
+drain, cork/uncork, finish/error/close, and destruction cleanup. Completion uses
+Promise checkpoints rather than Node nextTick scheduling. Readable/piping and
+other stream classes are separate tasks. See the [stream contract](streams.md).
 
 ## `rustyjs:timers`
 

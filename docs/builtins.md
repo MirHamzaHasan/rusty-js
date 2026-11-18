@@ -9,6 +9,9 @@ and events aliases. It is bundled JavaScript rather than Rust listener dispatch.
 The [Buffer module](buffer.md) adds rustyjs:buffer, node:buffer, and buffer aliases
 with a named Buffer export shared with the global constructor. CommonJS returns
 an object containing that constructor; there is no default ESM export yet.
+The [stream module](streams.md) currently exports only Writable through
+rustyjs:stream/node:stream/stream. Its constructor captures the existing
+EventEmitter and Buffer identities; the CommonJS route returns `{Writable}`.
 
 ```js
 import { sleep, setTimeout, clearTimeout } from 'rustyjs:timers';

@@ -9,6 +9,7 @@ pub(crate) enum Builtin {
     Module,
     Events,
     Buffer,
+    Stream,
 }
 
 impl Builtin {
@@ -18,6 +19,7 @@ impl Builtin {
             "rustyjs:module" => Some(Self::Module),
             "rustyjs:events" | "node:events" | "events" => Some(Self::Events),
             "rustyjs:buffer" | "node:buffer" | "buffer" => Some(Self::Buffer),
+            "rustyjs:stream" | "node:stream" | "stream" => Some(Self::Stream),
             _ => None,
         }
     }
@@ -28,6 +30,7 @@ impl Builtin {
             Self::Module => "rustyjs:module",
             Self::Events => "rustyjs:events",
             Self::Buffer => "rustyjs:buffer",
+            Self::Stream => "rustyjs:stream",
         }
     }
 
@@ -37,6 +40,7 @@ impl Builtin {
             Self::Module => &["createRequire"],
             Self::Events => &["default", "EventEmitter"],
             Self::Buffer => &["Buffer"],
+            Self::Stream => &["Writable"],
         }
     }
 }
@@ -70,12 +74,14 @@ impl NativeExports {
         let create_require: v8::Local<v8::Value> = create_require.into();
         let events = crate::events::create(scope)?;
         let buffer = crate::buffer::create(scope)?;
+        let writable = crate::streams::create(scope, events, buffer)?;
         let key = v8::String::new(scope, "Buffer")?;
         if global.create_data_property(scope, key.into(), buffer) != Some(true) {
             return None;
         }
         Some(Self(HashMap::from([
             (Builtin::Buffer, vec![v8::Global::new(scope, buffer)]),
+            (Builtin::Stream, vec![v8::Global::new(scope, writable)]),
             (Builtin::Timers, functions),
             (
                 Builtin::Module,

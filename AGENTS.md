@@ -127,8 +127,11 @@ Capture rejections, EventTarget, async events utilities, and other Node built-in
 remain separate tasks. Buffer now adds fixed V8 byte storage, copy/view semantics,
 UTF-8/hex/base64 and single-byte/UTF-16 encodings, byte operations, and fixed-width
 numeric IO. Keep `docs/buffer.md` current. A 64 MiB per-Buffer guard is not an
-isolate budget or sandbox. The next slice is bounded Readable/Writable streams
-using the existing EventEmitter and Buffer contracts before filesystem APIs.
+isolate budget or sandbox. Writable now adds serialized byte/object writes,
+backpressure, corking, explicit finish/error/destruction, and Promise-checkpoint
+notifications through stream/node:stream/rustyjs:stream. Keep `docs/streams.md`
+current. Readable and piping are next, before filesystem/network-backed streams.
+The high-water mark is advisory; no runtime memory budget is implied.
 No package manager or full Node compatibility is implied.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
