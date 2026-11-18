@@ -95,6 +95,10 @@ impl JsRuntime {
     pub fn execute_module(&mut self, path: impl AsRef<Path>) -> Result<(), JsError> {
         let path = path.as_ref();
         let result = canonical_file(path, &path.to_string_lossy())
+            .and_then(|path| {
+                crate::packages::validate_format(&path, &path.to_string_lossy(), true)?;
+                Ok(path)
+            })
             .map(ModuleId::File)
             .and_then(|entry| {
                 self.start_module(entry, true)
@@ -338,7 +342,7 @@ impl JsRuntime {
     }
 }
 
-fn canonical_file(path: &Path, origin: &str) -> Result<PathBuf, JsError> {
+pub(crate) fn canonical_file(path: &Path, origin: &str) -> Result<PathBuf, JsError> {
     let path = std::fs::canonicalize(path).map_err(|error| {
         JsError::host(
             &format!("cannot load module {}: {error}", path.display()),
@@ -368,15 +372,16 @@ fn resolve_specifier(specifier: &str, referrer: &str) -> Result<ModuleId, JsErro
         // Native absolute paths remain supported, including Windows drive paths.
         Url::from_file_path(path).map_err(|_| fail("invalid absolute module path"))?
     } else if specifier.starts_with("./") || specifier.starts_with("../") {
+        if referrer == "<eval>" {
+            return Err(fail("relative imports require a file referrer"));
+        }
         let base = canonical_file(Path::new(referrer), referrer)?;
         Url::from_file_path(base)
             .map_err(|_| fail("invalid module referrer path"))?
             .join(specifier)
             .map_err(|_| fail("invalid relative module URL"))?
     } else {
-        return Err(fail(&format!(
-            "unsupported module specifier {specifier:?}; use an explicit local file path or file URL"
-        )));
+        return crate::packages::resolve(specifier, referrer).map(ModuleId::File);
     };
     if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
         return Err(fail(
@@ -393,7 +398,9 @@ fn resolve_specifier(specifier: &str, referrer: &str) -> Result<ModuleId, JsErro
     let path = url
         .to_file_path()
         .map_err(|_| fail("file URL cannot be converted to a local path"))?;
-    canonical_file(&path, referrer).map(ModuleId::File)
+    let path = canonical_file(&path, referrer)?;
+    crate::packages::validate_format(&path, referrer, false)?;
+    Ok(ModuleId::File(path))
 }
 
 pub(crate) fn import_dynamic<'s>(
@@ -779,6 +786,41 @@ mod tests {
             assert!(js.modules.borrow().timer_exports.is_some());
             js.execute("globalThis.Rusty = null; globalThis.setTimeout = null; import('rustyjs:timers').then(async timers => { if (timers !== nativeTimers || globalThis.unexpected) throw Error('lost cached native module'); await timers.sleep(0); await new Promise(resolve => timers.setTimeout(resolve, 0)); });", "<eval>").unwrap();
             js.run_event_loop().await.unwrap();
+        });
+    }
+
+    #[test]
+    fn failed_package_preparation_can_retry_in_the_same_runtime() {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let package = fixture.0.join("node_modules/retry");
+            std::fs::create_dir_all(&package).unwrap();
+            std::fs::write(package.join("package.json"), "{").unwrap();
+            std::fs::write(
+                package.join("index.mjs"),
+                "await Rusty.sleep(0); export const value = 42;",
+            )
+            .unwrap();
+            let entry = fixture.write(
+                "main.mjs",
+                "import {value} from 'retry'; globalThis.packageResult = value;",
+            );
+            let mut js = JsRuntime::new().unwrap();
+            assert!(
+                js.execute_module(&entry)
+                    .unwrap_err()
+                    .message
+                    .contains("package.json")
+            );
+            assert!(js.modules.borrow().entries.is_empty());
+            std::fs::write(package.join("package.json"), r#"{"exports":"./index.mjs"}"#).unwrap();
+            js.execute_module(&entry).unwrap();
+            js.run_event_loop().await.unwrap();
+            js.execute(
+                "if (packageResult !== 42) throw Error('package retry failed');",
+                "verify.js",
+            )
+            .unwrap();
         });
     }
 }

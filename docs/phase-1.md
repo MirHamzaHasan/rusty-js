@@ -1,11 +1,11 @@
 # Phase 1: module system
 
-## Current slice: file and built-in ES modules
+## Current slice: files, built-ins, and installed ESM packages
 
-Local-file ESM, dynamic imports, module metadata, and the first native built-in
-are implemented alongside the classic-script runner. See the
+Local-file ESM, dynamic imports, metadata, native timers, and a bounded installed
+ESM package resolver are implemented alongside the classic-script runner. See the
 [module walkthrough](modules.md), [built-in design](builtins.md), and
-[supported API](api.md).
+[supported API](api.md), and [package contract](packages.md).
 
 | Capability | Status |
 | --- | --- |
@@ -18,7 +18,9 @@ are implemented alongside the classic-script runner. See the
 | Dynamic `import()` in modules and classic scripts | Implemented with shared cache, concurrent evaluation, and catchable failures |
 | `import.meta.url` and `import.meta.main` | Implemented with escaped canonical file URLs |
 | `rustyjs:timers` built-in | Implemented with V8 synthetic modules and shared static/dynamic identity |
-| Package resolution and package.json exports | Planned |
+| Scoped/unscoped node_modules lookup and self-reference | Implemented |
+| Exact exports/subpaths, ordered import/default conditions, main/index entries | Implemented subset; formats and target paths are validated |
+| Export patterns, fallback arrays, and #imports | Planned |
 | CommonJS and mixed-module interoperability | Planned |
 
 ## Validation on 2026-11-18
@@ -84,10 +86,37 @@ timer behavior, inline imports, invalid names, missing exports, failed-link
 recovery, global property replacement, and cache reuse after cancellation.
 GitHub Actions remains idle; no CI checks were triggered.
 
-## Next slice: package-aware ESM resolution
+## Package resolver validation on 2026-11-19
 
-Define a small package resolution contract, then add bare-package lookup through
-node_modules and package.json entry/exports rules with explicit ESM format checks.
-Keep CommonJS, mixed-module execution, HTTP imports, disk caches, and full Node
-compatibility separate. An initial package loader must fail clearly when it meets
-unsupported formats rather than treating CommonJS as working ESM.
+On macOS arm64 with Rust/Cargo 1.97.1 and V8 152.2.0:
+
+- `cargo test --locked`: 58 passed: 16 library, 15 general CLI, 16 module CLI,
+  and 11 package CLI tests. One symlink test is Unix-only.
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
+- `cargo run --locked -- examples/packages/main.mjs`: prints
+  `package imports: 42 84` through package self-reference and host-backed await.
+- Markdown links and whitespace: valid across eleven project documents.
+
+Package tests build temporary dependency trees rather than committing installed
+dependencies. They cover scoped/nested lookup, exports encapsulation, conditions
+in manifest order, null blocks, main/index defaults, subpaths, self-reference,
+static/dynamic/direct-file identity, encoded names, format boundaries, bad
+metadata, unsupported exports, traversal, symlinks, and failure without parent
+fallback. A library test repairs a bad manifest and retries in the same context.
+
+Imports now require `.mjs` or `.js` with nearest `type: module`; unsupported and
+CommonJS formats fail before evaluation. This deliberately replaces the earlier
+all-extensions-as-ESM behavior. Explicit module entrypoints retain their source
+override except for `.cjs`. CLI `.js` files still default to classic mode.
+
+All results are local. GitHub Actions is manual-only and was not triggered.
+These tests establish the documented RustyJS subset, not full Node compatibility.
+
+## Next slice: export patterns and fallback arrays
+
+Extend the resolver contract and tests for export-pattern specificity and array
+fallback semantics before adding CommonJS execution. Keep #imports, mixed-module
+execution, HTTP imports, package installation, and full Node compatibility as
+separate work.

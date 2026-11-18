@@ -15,6 +15,9 @@ steps and before idle exit. See [module design](modules.md) for cache lifetime,
 file URL semantics, metadata, idle recovery, and cancellation semantics.
 Native modules use V8 synthetic modules and captured native function handles;
 the [built-in walkthrough](builtins.md) explains their lifetime and exports.
+Package lookup and format checks are plain Rust filesystem/JSON operations before
+graph compilation; they return canonical file IDs to the same cache. The
+[package contract](packages.md) covers lookup order, export conditions, and limits.
 
 ## Decision: one thread owns JavaScript
 

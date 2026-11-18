@@ -1,4 +1,4 @@
-# Local-file ES modules
+# Local and package ES modules
 
 Phase 1 loads static and dynamic local module graphs and evaluates them in
 the runtime's existing context. V8 supplies JavaScript module semantics; RustyJS
@@ -15,7 +15,8 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
   selects it explicitly for another extension. Other file entrypoints and `-e`
   retain classic-script behavior.
 - Specifiers must start with `./` or `../`, be native OS absolute paths, or use
-  `file:` URLs, apart from registered built-in names such as `rustyjs:timers`.
+  `file:` URLs, apart from registered built-ins such as `rustyjs:timers` and
+  bare packages resolved through `node_modules` or package self-reference.
   Relative imports resolve against the importing file's canonical
   URL, independent of the process working directory. The `url` crate performs URL
   conversion; relative references are percent decoded. Native absolute paths stay
@@ -23,14 +24,19 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
 - The target must be an existing regular file containing UTF-8 JavaScript module
   source. URL queries/fragments and escaped path separators are rejected rather
   than assigned separate cache identities. Extension guessing, directory indexes,
-  and HTTP loading are absent. A file without an extension works if its exact name
-  is requested. For example, `./space%20%23%20caf%C3%A9.mjs` loads `space # café.mjs`.
-- Imported files are parsed as ESM regardless of their extension. There is no
-  package.json format inference, JSON loader, bare-package resolution, CommonJS,
-  import attributes, or source/deferred import phases in this slice.
-- `import()` also works in classic files. Inline `<eval>` has no relative file
-  base; absolute paths and file URLs still work. A library script origin used as a
-  relative base must name an existing file.
+  and HTTP loading are absent for explicit file imports. For example,
+  `./space%20%23%20caf%C3%A9.mjs` loads `space # café.mjs`.
+- Imports now require `.mjs`, or `.js` whose nearest package.json has
+  `"type": "module"`. This tightens the previous all-extensions-as-ESM rule.
+  CommonJS, JSON, other formats, import attributes, and source/deferred phases
+  are unsupported. Explicit module entrypoints can force another source extension
+  except `.cjs`; their imports still follow the format rules.
+- Package lookup supports exact exports, ordered import/default conditions, main
+  entries, and subpaths. See the [package contract](packages.md) for the supported
+  subset, format scopes, entry defaults, and explicit omissions.
+- `import()` also works in classic files. Inline `<eval>` has no relative file or
+  package lookup base; absolute paths, file URLs, and built-ins still work.
+  A library script origin used as a relative base must name an existing file.
 - `import.meta.url` is the canonical escaped file URL. `import.meta.main` marks
   the first explicit ESM entrypoint; dependencies are false. Metadata is created
   once, so loading a module dynamically before a later explicit entry call does
@@ -52,6 +58,7 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
    or unbounded recursive Rust calls.
 4. V8's module requests supply specifiers and source offsets. Rust validates each
    request, resolves the target file, and records a `(referrer, specifier)` edge.
+   Bare specifiers use package metadata and installed dependency lookup first.
    Unsupported or missing imports get a referrer filename and source location.
 5. After the graph is prepared, V8 instantiates it. The resolver callback only
    finds precompiled dependency handles; it performs no filesystem reads or new
@@ -146,6 +153,8 @@ metadata, and caught idle imports.
 Library tests cover source changes after caching, symlink aliases on Unix,
 cached failures, failed-graph rollback and retry, cancellation, context reuse,
 dynamic waiter cleanup, and file URLs in static and inline imports.
+Package tests cover installed and self-referenced ESM graphs, exact exports,
+format boundaries, metadata errors, path validation, and retry after repair.
 The ordinary script, Promise, and callback-timer suites remain in the same run.
 
 This is a trusted local-file loader. It does not impose a filesystem sandbox,

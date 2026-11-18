@@ -1,0 +1,8 @@
+{
+  "name": "rustyjs-example-package",
+  "type": "module",
+  "exports": {
+    ".": "./lib/answer.js",
+    "./double": "./lib/double.js"
+  }
+}

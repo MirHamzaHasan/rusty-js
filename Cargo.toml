@@ -7,6 +7,8 @@ description = "A JavaScript runtime embedding V8 with a Rust host"
 repository = "https://github.com/MirHamzaHasan/rusty-js"
 
 [dependencies]
+percent-encoding = "2.3.2"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.54.1", features = ["rt", "time"] }
 url = "2.5.8"
 v8 = "=152.2.0"
