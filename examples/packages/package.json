@@ -3,6 +3,11 @@
   "type": "module",
   "exports": {
     ".": "./lib/answer.js",
-    "./double": "./lib/double.js"
+    "./double": "./lib/double.js",
+    "./values/*": ["../invalid/*.js", "./lib/*.js"]
+  },
+  "imports": {
+    "#answer": "./lib/answer.js",
+    "#timers": "rustyjs:timers"
   }
 }

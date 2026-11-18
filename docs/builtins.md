@@ -40,6 +40,11 @@ to filesystem or package lookup. Static failures produce module diagnostics;
 dynamic failures reject with TypeError. Missing exports use V8's linking errors.
 Import attributes and non-evaluation phases remain unsupported.
 
+A package can map a private imports key such as `"#timers": "rustyjs:timers"` to
+this module. That route shares the same cached namespace and function identities;
+it does not create an additional built-in or a filesystem alias. See
+[package maps](packages.md).
+
 ## Implementation walkthrough
 
 1. Fresh-context setup installs native globals, then captures their original

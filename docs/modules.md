@@ -31,8 +31,9 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
   CommonJS, JSON, other formats, import attributes, and source/deferred phases
   are unsupported. Explicit module entrypoints can force another source extension
   except `.cjs`; their imports still follow the format rules.
-- Package lookup supports exact exports, ordered import/default conditions, main
-  entries, and subpaths. See the [package contract](packages.md) for the supported
+- Package lookup supports exact/pattern exports, fallback arrays, package-local
+  `#imports`, ordered import/default conditions, main entries, and subpaths.
+  See the [package contract](packages.md) for the supported
   subset, format scopes, entry defaults, and explicit omissions.
 - `import()` also works in classic files. Inline `<eval>` has no relative file or
   package lookup base; absolute paths, file URLs, and built-ins still work.
@@ -153,8 +154,9 @@ metadata, and caught idle imports.
 Library tests cover source changes after caching, symlink aliases on Unix,
 cached failures, failed-graph rollback and retry, cancellation, context reuse,
 dynamic waiter cleanup, and file URLs in static and inline imports.
-Package tests cover installed and self-referenced ESM graphs, exact exports,
-format boundaries, metadata errors, path validation, and retry after repair.
+Package tests cover installed and self-referenced ESM graphs, exact/pattern
+exports, fallback arrays, private imports, format boundaries, metadata errors,
+path validation, and retry after repair.
 The ordinary script, Promise, and callback-timer suites remain in the same run.
 
 This is a trusted local-file loader. It does not impose a filesystem sandbox,

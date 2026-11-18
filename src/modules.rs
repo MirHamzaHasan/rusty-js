@@ -13,7 +13,7 @@ use crate::{JsError, JsRuntime, caught_error, message_error};
 pub(crate) type SharedModules = Rc<RefCell<ModuleMap>>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum ModuleId {
+pub(crate) enum ModuleId {
     File(PathBuf),
     Builtin(Builtin),
 }
@@ -381,7 +381,7 @@ fn resolve_specifier(specifier: &str, referrer: &str) -> Result<ModuleId, JsErro
             .join(specifier)
             .map_err(|_| fail("invalid relative module URL"))?
     } else {
-        return crate::packages::resolve(specifier, referrer).map(ModuleId::File);
+        return crate::packages::resolve(specifier, referrer);
     };
     if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
         return Err(fail(

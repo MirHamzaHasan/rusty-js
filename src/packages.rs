@@ -4,11 +4,12 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use percent_encoding::percent_decode_str;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use url::Url;
 
 use crate::JsError;
-use crate::modules::canonical_file;
+use crate::builtins::Builtin;
+use crate::modules::{ModuleId, canonical_file};
 
 struct Manifest {
     directory: PathBuf,
@@ -109,7 +110,7 @@ fn parse_specifier(specifier: &str, origin: &str) -> Result<(String, String), Js
     let invalid = || JsError::host(&format!("invalid package specifier {specifier:?}"), origin);
     if specifier.starts_with('#') {
         return Err(JsError::host(
-            "package imports (#imports) are not supported",
+            "imports targets cannot alias another #import",
             origin,
         ));
     }
@@ -142,7 +143,14 @@ fn parse_specifier(specifier: &str, origin: &str) -> Result<(String, String), Js
     Ok((name, subpath))
 }
 
-pub(crate) fn resolve(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> {
+pub(crate) fn resolve(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
+    if specifier.starts_with('#') {
+        return resolve_imports(specifier, referrer);
+    }
+    resolve_package(specifier, referrer).map(ModuleId::File)
+}
+
+fn resolve_package(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> {
     let (name, subpath) = parse_specifier(specifier, referrer)?;
     if referrer == "<eval>" {
         return Err(JsError::host(
@@ -219,29 +227,23 @@ fn resolve_in_package(
                 if map.keys().any(|key| !key.starts_with('.')) {
                     return Err(fail("exports cannot mix subpath and condition keys"));
                 }
-                if map.keys().any(|key| key.contains('*')) {
-                    return Err(fail("exports patterns are not supported"));
-                }
-                if map.keys().any(|key| key != "." && !key.starts_with("./")) {
-                    return Err(fail("invalid exports subpath key"));
-                }
-                map.get(subpath)
+                match_mapping(map, subpath, false).map_err(|error| fail(&error.message()))?
             } else if subpath == "." {
-                Some(exports)
+                Some((exports, None))
             } else {
                 None
             }
         } else if subpath == "." {
-            Some(exports)
+            Some((exports, None))
         } else {
             None
         };
         match selected
-            .map(|value| select_target(value, 0))
+            .map(|(value, capture)| select_target(value, capture, 0, false))
             .transpose()
-            .map_err(|message| fail(&message))?
+            .map_err(|error| fail(&error.message()))?
         {
-            Some(Target::Path(target)) => target.to_owned(),
+            Some(Target::Selected(target)) => target,
             _ => {
                 return Err(fail(&format!(
                     "package subpath {subpath:?} is not exported"
@@ -260,10 +262,20 @@ fn resolve_in_package(
     } else {
         "./index.js".to_owned()
     };
-    validate_target(&target).map_err(|message| fail(&message))?;
+    resolve_file_target(root, &target, origin)
+}
+
+fn resolve_file_target(root: &Path, target: &str, origin: &str) -> Result<PathBuf, JsError> {
+    let fail = |message: &str| {
+        JsError::host(
+            &format!("{}: {message}", root.join("package.json").display()),
+            origin,
+        )
+    };
+    validate_target(target).map_err(|message| fail(&message))?;
     let url = Url::from_directory_path(root)
         .map_err(|_| fail("invalid package directory"))?
-        .join(&target)
+        .join(target)
         .map_err(|_| fail("invalid package target URL"))?;
     let file = url
         .to_file_path()
@@ -278,30 +290,128 @@ fn resolve_in_package(
     Ok(file)
 }
 
-enum Target<'a> {
+enum Target {
     Unmatched,
     Blocked,
-    Path(&'a str),
+    Selected(String),
 }
 
-fn select_target(value: &Value, depth: usize) -> Result<Target<'_>, String> {
+enum TargetError {
+    InvalidTarget(String),
+    InvalidConfig(String),
+}
+
+impl TargetError {
+    fn message(self) -> String {
+        match self {
+            Self::InvalidTarget(message) | Self::InvalidConfig(message) => message,
+        }
+    }
+}
+
+/// Exact keys win; otherwise prefer the longest prefix, then the longest trailer.
+fn match_mapping<'a, 'b>(
+    map: &'a Map<String, Value>,
+    request: &'b str,
+    internal: bool,
+) -> Result<Option<(&'a Value, Option<&'b str>)>, TargetError> {
+    for key in map.keys() {
+        let path = if internal {
+            if !key.starts_with('#') || key == "#" || key.starts_with("#/") {
+                return Err(TargetError::InvalidConfig("invalid imports key".into()));
+            }
+            format!("./{}", &key[1..])
+        } else {
+            if key == "." {
+                continue;
+            }
+            key.clone()
+        };
+        if key.matches('*').count() > 1 || validate_target(&path.replace('*', "pattern")).is_err() {
+            return Err(TargetError::InvalidConfig(
+                "invalid package map key; use exact paths or one wildcard".into(),
+            ));
+        }
+    }
+    if let Some(value) = map.get(request) {
+        return Ok(Some((value, None)));
+    }
+    let mut best = None;
+    let mut rank = (0, 0);
+    for (key, value) in map {
+        let Some((prefix, trailer)) = key.split_once('*') else {
+            continue;
+        };
+        if request.starts_with(prefix)
+            && request.ends_with(trailer)
+            && request.len() > prefix.len() + trailer.len()
+            && (prefix.len(), key.len()) > rank
+        {
+            rank = (prefix.len(), key.len());
+            best = Some((
+                value,
+                Some(&request[prefix.len()..request.len() - trailer.len()]),
+            ));
+        }
+    }
+    Ok(best)
+}
+
+fn select_target(
+    value: &Value,
+    capture: Option<&str>,
+    depth: usize,
+    internal: bool,
+) -> Result<Target, TargetError> {
     if depth > 32 {
-        return Err("exports condition nesting exceeds 32 levels".into());
+        return Err(TargetError::InvalidConfig(
+            "package target nesting exceeds 32 levels".into(),
+        ));
     }
     match value {
-        Value::String(target) => Ok(Target::Path(target)),
+        Value::String(target) => {
+            // Validate the template before substitution can hide invalid segments.
+            let path = if let Some(capture) = capture {
+                validate_mapped_target(&target.replace('*', "pattern"), internal)
+                    .map_err(TargetError::InvalidTarget)?;
+                target.replace('*', capture)
+            } else {
+                target.clone()
+            };
+            validate_mapped_target(&path, internal).map_err(TargetError::InvalidTarget)?;
+            Ok(Target::Selected(path))
+        }
         Value::Null => Ok(Target::Blocked),
-        Value::Array(_) => Err("exports fallback arrays are not supported".into()),
+        Value::Array(items) => {
+            if items.is_empty() {
+                return Ok(Target::Blocked);
+            }
+            let mut last = Ok(Target::Unmatched);
+            for item in items {
+                match select_target(item, capture, depth + 1, internal) {
+                    Ok(Target::Unmatched) => {}
+                    Ok(Target::Blocked) => last = Ok(Target::Blocked),
+                    Ok(path) => return Ok(path),
+                    Err(error @ TargetError::InvalidTarget(_)) => last = Err(error),
+                    Err(error) => return Err(error),
+                }
+            }
+            last
+        }
         Value::Object(conditions) => {
-            if conditions
-                .keys()
-                .any(|key| key.starts_with('.') || key.parse::<u32>().is_ok())
-            {
-                return Err("invalid exports condition key".into());
+            if conditions.keys().any(|key| {
+                key.starts_with('.')
+                    || key
+                        .parse::<u32>()
+                        .is_ok_and(|index| index < u32::MAX && index.to_string() == *key)
+            }) {
+                return Err(TargetError::InvalidConfig(
+                    "invalid package condition key".into(),
+                ));
             }
             for (condition, target) in conditions {
                 if condition == "import" || condition == "default" {
-                    match select_target(target, depth + 1)? {
+                    match select_target(target, capture, depth + 1, internal)? {
                         Target::Unmatched => {}
                         target => return Ok(target),
                     }
@@ -309,8 +419,83 @@ fn select_target(value: &Value, depth: usize) -> Result<Target<'_>, String> {
             }
             Ok(Target::Unmatched)
         }
-        _ => Err("invalid exports target; expected a string, condition object, or null".into()),
+        _ => Err(TargetError::InvalidTarget(
+            "invalid package target; expected a string, array, condition object, or null".into(),
+        )),
     }
+}
+
+fn validate_mapped_target(target: &str, internal: bool) -> Result<(), String> {
+    if !internal || target.starts_with("./") {
+        return validate_target(target);
+    }
+    if target.starts_with("rustyjs:") && !target.contains(['*', '?', '#', '\\', '\0']) {
+        return Ok(());
+    }
+    parse_specifier(target, "<package target>")
+        .map(|_| ())
+        .map_err(|_| "imports target must be a ./ path, a package name, or a rustyjs: built-in; # aliases and other URLs are unsupported".into())
+}
+
+fn resolve_imports(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
+    let fail = |message: &str| JsError::host(message, referrer);
+    if referrer == "<eval>" {
+        return Err(fail("package imports require a file referrer"));
+    }
+    if specifier == "#"
+        || specifier.starts_with("#/")
+        || validate_target(&format!("./{}", &specifier[1..])).is_err()
+    {
+        return Err(fail("invalid package import specifier"));
+    }
+    let base = canonical_file(Path::new(referrer), referrer)?;
+    let manifest = nearest_scope(&base, referrer)?.ok_or_else(|| {
+        fail(&format!(
+            "package import {specifier:?} is not defined; no package scope"
+        ))
+    })?;
+    let fail = |message: &str| manifest.error(message, referrer);
+    let map = manifest
+        .value
+        .get("imports")
+        .ok_or_else(|| {
+            fail(&format!(
+                "package import {specifier:?} is not defined in the nearest scope"
+            ))
+        })?
+        .as_object()
+        .ok_or_else(|| fail("package imports requires an object map in the nearest scope"))?;
+    let selected = match_mapping(map, specifier, true).map_err(|error| fail(&error.message()))?;
+    let target = match selected
+        .map(|(value, capture)| select_target(value, capture, 0, true))
+        .transpose()
+        .map_err(|error| fail(&error.message()))?
+    {
+        Some(Target::Selected(target)) => target,
+        _ => {
+            return Err(fail(&format!(
+                "package import {specifier:?} is not defined"
+            )));
+        }
+    };
+    if target.starts_with("./") {
+        return resolve_file_target(&manifest.directory, &target, referrer).map(ModuleId::File);
+    }
+    if target.starts_with("rustyjs:") {
+        return Builtin::resolve(&target)
+            .map(ModuleId::Builtin)
+            .ok_or_else(|| fail(&format!("unknown built-in module {target:?}")));
+    }
+    // External aliases resolve from the manifest, not a nested importing file.
+    resolve_package(
+        &target,
+        &manifest.directory.join("package.json").to_string_lossy(),
+    )
+    .map(ModuleId::File)
+    .map_err(|mut error| {
+        error.origin = referrer.into();
+        error
+    })
 }
 
 fn validate_target(target: &str) -> Result<(), String> {

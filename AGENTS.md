@@ -101,11 +101,14 @@ URLs and an entrypoint flag. Keep `docs/modules.md` and `docs/phase-1.md` curren
 The `rustyjs:timers` synthetic module exports the original native sleep and callback
 timer functions through the same static/dynamic cache. Keep `docs/builtins.md`
 current. Package-aware ESM now handles node_modules, scoped names, self-reference,
-exact exports, ordered import/default conditions, and explicit main entries.
+exact/pattern exports, fallback arrays, ordered import/default conditions,
+package-local #imports, and explicit main entries.
 Imported .js requires package.json type module; .cjs is rejected. Keep
-`docs/packages.md` current. Next extend exports with patterns and fallback arrays
-before tackling CommonJS as a separate slice. No package manager or full Node
-compatibility is implied.
+`docs/packages.md` current. Arrays skip invalid target shapes, not missing selected
+files or dependencies. #imports aliases may target local files, packages, and
+native built-ins, but not another #alias. Next tackle CommonJS execution with
+explicit ESM interop and circular-cache rules as a separate slice. No package
+manager or full Node compatibility is implied.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
 `refs/heads/main`: pull requests required, force pushes and deletion blocked, no
