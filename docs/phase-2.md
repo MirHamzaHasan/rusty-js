@@ -8,7 +8,8 @@ compatibility target or a package/tooling replacement.
 | --- | --- |
 | Core EventEmitter with ESM/CJS aliases | Implemented; see [events](events.md) for tested semantics and omissions |
 | Buffer and binary encodings | Implemented subset; see [Buffer](buffer.md) for ownership, limits, and omissions |
-| Readable/Writable streams | Planned after binary primitives and event behavior |
+| Writable streams | Implemented subset; see [streams](streams.md) for backpressure, lifecycle, and scheduling |
+| Readable and piping | Next slice |
 | path, os, process | Planned bounded surface |
 | fs and crypto | Planned |
 | fetch, Request/Response, URL | Planned |
@@ -18,14 +19,15 @@ compatibility target or a package/tooling replacement.
 
 Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 
-- `cargo test --locked`: 107 passed: 18 library, 12 Buffer CLI, 15 general CLI,
-  14 CommonJS CLI, 11 events CLI, 16 module CLI, and 21 package CLI tests.
+- `cargo test --locked`: 123 passed: 18 library, 12 Buffer CLI, 15 general CLI,
+  14 CommonJS CLI, 11 events CLI, 16 module CLI, 21 package CLI, and 16 stream CLI tests.
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
 - `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
 - EventEmitter examples printed `event: 42` once and `CommonJS event: 42`.
 - Buffer example printed `42 OK`, then `shared: NK copy: OK`.
-- Markdown links and whitespace: valid across fifteen project documents.
+- Writable example printed `hello world` after backpressure and asynchronous writes.
+- Markdown links and whitespace: valid across sixteen project documents.
 
 Event tests exercise synchronous order and receivers, mutation snapshots,
 duplicates, once reentrancy, listener metadata, symbols/property keys, errors,
@@ -48,10 +50,18 @@ runtime memory limit. Twelve Buffer tests cover the ownership/validation contrac
 A locally run corpus matched Node v20.19.4 across 2,777 entries; this is correctness
 evidence for those inputs rather than full compatibility or performance evidence.
 
-## Next slice: bounded streams
+## Writable slice
 
-Build Readable/Writable on the existing EventEmitter and Buffer APIs. Define
-backpressure, event ordering, errors, destruction, and cancellation before wiring
-filesystem or network handles. Do not expand into full Node compatibility.
+Writable adds serialized byte/object-mode writes, advisory backpressure/drain,
+corking, callback-based async hooks, finalization, and explicit destruction.
+Notifications use Promise checkpoints rather than Node nextTick phases. Sixteen
+integration tests cover queue/lifecycle ordering and failure cleanup. There is
+no separate host scheduler, native IO adapter, or performance claim.
+
+## Next slice: Readable and piping
+
+Build Readable on the existing EventEmitter, Buffer, and Writable APIs. Define
+pull/push consumption, pause/resume, pipe backpressure, EOF, errors, and destruction
+before wiring filesystem or network handles. Do not expand into full Node compatibility.
 Preserve the later AI, blockchain, dataframe, and GPU roadmap without claiming
 those facilities are already shipped.
