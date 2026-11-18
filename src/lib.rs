@@ -3,6 +3,7 @@
 mod async_ops;
 mod builtins;
 mod modules;
+mod packages;
 mod timers;
 
 use std::cell::RefCell;

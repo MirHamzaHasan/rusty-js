@@ -34,14 +34,23 @@ CommonJS, and a REPL are not implemented.
 ## ES modules
 
 Static and dynamic imports accept explicit `./` / `../` references, native OS
-absolute paths, `file:` URLs, or registered `rustyjs:*` names. Relative references
-resolve against the defining file and use URL percent decoding
+absolute paths, `file:` URLs, installed package names, or registered `rustyjs:*`
+names. Relative references resolve against the defining file and use URL percent decoding
 (`./space%20%23.mjs` addresses `space #.mjs`).
 Native absolute paths are literal filesystem paths. URL queries, fragments, and
 encoded separators are rejected. Files are canonicalized for identity and must
-exist; there is no extension/index guessing, bare-package lookup, or package.json
-format inference. Imported files are parsed as JavaScript modules regardless of
-extension. Import attributes and non-evaluation phases are rejected.
+exist. Imported files must be `.mjs` or `.js` with nearest package.json
+`"type": "module"`; CommonJS, JSON, and other imported formats are rejected.
+Explicit file imports do not guess extensions or directory indexes.
+Import attributes and non-evaluation phases are rejected.
+
+Bare names search ancestor `node_modules` directories from the defining file.
+Scoped names, package self-reference, exact exports/subpaths, ordered
+`import`/`default` conditions, explicit `main`, and the legacy package-root
+`index.js` default are supported. Export patterns, arrays, `#imports`, custom
+conditions, package installation, and CommonJS are absent. Unsupported or blocked
+entries fail without falling back to a parent package version. See the
+[package contract](packages.md) for target validation and format rules.
 
 Module graphs support default/named exports, re-exports, live bindings, cycles,
 and top-level await through the host Promise/timer loop. Module success and
@@ -58,9 +67,9 @@ policy; it does not implement indefinite waiting for externally settled Promises
 Promise per call, and shares cached module evaluation/namespace identity. Load and
 resolution failures reject with TypeError; V8 compile/link exceptions and module
 evaluation rejection values are preserved. An unhandled import rejection follows
-the normal rejection policy. Inline `<eval>` has no relative file base: use an
-absolute path or file URL there. Library script origins used as relative import
-bases must name existing files.
+the normal rejection policy. Inline `<eval>` has no relative file or package base:
+use an absolute path, file URL, or built-in there. Library script origins used as
+relative import bases must name existing files.
 
 `import.meta.url` is the module's canonical, escaped file URL.
 `import.meta.main` marks the first explicit ESM entrypoint in a runtime; imported

@@ -23,6 +23,9 @@ and dynamic imports, file URLs, caching, cycles, host-backed top-level await, an
 `import.meta.url` / `import.meta.main` metadata.
 The first built-in module, `rustyjs:timers`, exports the native sleep and callback
 timer functions through ESM.
+Installed ESM packages support `node_modules` lookup, scoped names, exact exports,
+ordered import/default conditions, and package self-reference. CommonJS and
+broader Node compatibility remain unimplemented.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -39,6 +42,7 @@ cargo run --locked -- examples/timers.js
 cargo run --locked -- examples/modules/main.mjs
 cargo run --locked -- examples/modules/dynamic.mjs
 cargo run --locked -- examples/modules/builtins.mjs
+cargo run --locked -- examples/packages/main.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -66,6 +70,8 @@ the [async bridge walkthrough](docs/async-runtime.md), and
 Module behavior and limits are covered in the [module walkthrough](docs/modules.md)
 and [Phase 1 progress](docs/phase-1.md).
 Native module exports are documented in [built-in modules](docs/builtins.md).
+The [package contract](docs/packages.md) describes the supported ESM subset and
+its format rules: imported `.js` requires `"type": "module"`.
 
 ## Roadmap
 

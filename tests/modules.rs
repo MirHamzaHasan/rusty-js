@@ -50,7 +50,7 @@ fn explicit_module_mode_preserves_classic_js_default() {
 #[test]
 fn module_preparation_and_link_errors_are_controlled_diagnostics() {
     for (name, message) in [
-        ("bare.mjs", "unsupported module specifier"),
+        ("bare.mjs", "was not found in node_modules"),
         ("attributes.mjs", "import attributes"),
         ("missing.mjs", "does-not-exist.mjs"),
         ("syntax.mjs", "SyntaxError"),
