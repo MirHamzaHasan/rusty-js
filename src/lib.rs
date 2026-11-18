@@ -1,6 +1,7 @@
 //! V8 execution and a Tokio-driven host Promise bridge, owned by one thread.
 
 mod async_ops;
+mod buffer;
 mod builtins;
 mod commonjs;
 mod events;

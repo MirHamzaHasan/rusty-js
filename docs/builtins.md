@@ -6,6 +6,9 @@ second scheduler or changing their contracts. `rustyjs:module` exports
 [factory contract](commonjs.md#require-factories-for-esm).
 The [EventEmitter module](events.md) adds rustyjs:events with explicit node:events
 and events aliases. It is bundled JavaScript rather than Rust listener dispatch.
+The [Buffer module](buffer.md) adds rustyjs:buffer, node:buffer, and buffer aliases
+with a named Buffer export shared with the global constructor. CommonJS returns
+an object containing that constructor; there is no default ESM export yet.
 
 ```js
 import { sleep, setTimeout, clearTimeout } from 'rustyjs:timers';
@@ -86,7 +89,8 @@ CLI entrypoints remain filenames; `--module rustyjs:timers` is not an entry form
 The registry declares names per built-in identity and keeps captured values in
 one map. Timers and module helpers use native functions and have no default
 export. Events uses a captured JS constructor with default/named ESM exports and
-a direct CommonJS constructor route. Only declared exports are available.
+a direct CommonJS constructor route. Buffer uses a captured JS constructor with
+private Rust UTF-8 conversion callbacks. Only declared exports are available.
 
 ## Local verification
 

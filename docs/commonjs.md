@@ -35,6 +35,7 @@ This does not imply full Node package compatibility.
   require has main and resolve. require.cache, extension hooks, module.parent and
   module.children and broader Node globals/built-ins are separate work.
   EventEmitter is available through events/node:events; see [events](events.md).
+  Buffer is global and available through buffer/node:buffer; see [bytes](buffer.md).
   The first uncached explicit CommonJS entry is main (id `.`); cached modules do
   not get new wrapper metadata when a library caller enters them again. Modules
   imported only through ESM have no CommonJS main.
@@ -113,8 +114,8 @@ Native require objects are likewise ordinary mutable cached objects; modifying
 their properties does not rewrite global functions or ESM native bindings.
 
 Node-style error codes, require.cache mutation, custom extension hooks,
-module.parent/children/paths, synchronous require(ESM), Node
-other built-ins, and broader Node globals are not implemented yet. Host IO and source
+module.parent/children/paths, synchronous require(ESM), most other Node built-ins,
+and broader Node globals are not implemented yet. Host IO and source
 compilation remain synchronous. There are no execution-time or memory limits.
 
 ## Require factories for ESM
