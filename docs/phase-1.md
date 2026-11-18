@@ -19,8 +19,8 @@ ESM package resolver are implemented alongside the classic-script runner. See th
 | `import.meta.url` and `import.meta.main` | Implemented with escaped canonical file URLs |
 | `rustyjs:timers` built-in | Implemented with V8 synthetic modules and shared static/dynamic identity |
 | Scoped/unscoped node_modules lookup and self-reference | Implemented |
-| Exact exports/subpaths, ordered import/default conditions, main/index entries | Implemented subset; formats and target paths are validated |
-| Export patterns, fallback arrays, and #imports | Planned |
+| Exact/pattern exports, ordered import/default conditions, main/index entries | Implemented subset; formats and target paths are validated |
+| Fallback arrays and package-local #imports | Implemented with target/configuration error distinction and package scope boundaries |
 | CommonJS and mixed-module interoperability | Planned |
 
 ## Validation on 2026-11-18
@@ -114,9 +114,36 @@ override except for `.cjs`. CLI `.js` files still default to classic mode.
 All results are local. GitHub Actions is manual-only and was not triggered.
 These tests establish the documented RustyJS subset, not full Node compatibility.
 
-## Next slice: export patterns and fallback arrays
+## Package map validation on 2026-11-19
 
-Extend the resolver contract and tests for export-pattern specificity and array
-fallback semantics before adding CommonJS execution. Keep #imports, mixed-module
-execution, HTTP imports, package installation, and full Node compatibility as
-separate work.
+Local macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0:
+
+- `cargo test --locked`: 68 passed: 16 library, 15 general CLI, 16 module CLI,
+  and 21 package CLI tests. One package symlink test is Unix-only.
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
+- `cargo run --locked -- examples/packages/maps.mjs`: prints `package maps: 42`.
+- `cargo run --locked -- examples/packages/main.mjs`: still prints
+  `package imports: 42 84`, now also exercising private imports and native aliases.
+- Markdown links and whitespace: valid across eleven project documents.
+
+New cases cover exact/prefix/trailer pattern priority, null exclusions, repeated
+target substitution, arrays with invalid targets/null/unmatched branches, missing
+files and unsupported formats without retry, non-index condition keys, template
+and capture traversal, Unicode, combined depth limits, #imports namespace
+identity, builtin and external aliases, nested scope boundaries, classic scripts,
+inline rejection, unavailable selected targets, and unsupported alias cycles.
+
+Direct #imports-to-#imports target chains remain intentionally unsupported; local
+file cycles retain ordinary V8 graph semantics. Native aliases are RustyJS-specific
+registered `rustyjs:*` names. The package contract records all retained omissions.
+All validation is local; GitHub Actions stayed idle.
+
+## Next slice: CommonJS execution and module boundaries
+
+Design and implement a bounded CommonJS loader with module-local require,
+module/exports wrapper semantics, circular-cache behavior, and useful filename
+diagnostics. Define ESM/CommonJS boundaries explicitly before advertising package
+compatibility. Keep package installation, HTTP imports, and full Node compatibility
+outside the current scope.

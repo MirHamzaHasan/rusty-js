@@ -1,3 +1,3 @@
-import { answer } from 'rustyjs-example-package';
+import { answer } from '#answer';
 
 export const doubled = answer * 2;

@@ -45,9 +45,13 @@ Explicit file imports do not guess extensions or directory indexes.
 Import attributes and non-evaluation phases are rejected.
 
 Bare names search ancestor `node_modules` directories from the defining file.
-Scoped names, package self-reference, exact exports/subpaths, ordered
+Scoped names, package self-reference, exact exports/subpaths, single-wildcard
+patterns, fallback arrays, package-local `#imports`, ordered
 `import`/`default` conditions, explicit `main`, and the legacy package-root
-`index.js` default are supported. Export patterns, arrays, `#imports`, custom
+`index.js` default are supported. Arrays skip invalid target shapes but never
+retry a selected missing file or unavailable dependency. `#imports` supports
+relative files, installed package aliases, and `rustyjs:*` built-ins using the
+nearest package scope; direct `#`-to-`#` alias chains remain unsupported. Custom
 conditions, package installation, and CommonJS are absent. Unsupported or blocked
 entries fail without falling back to a parent package version. See the
 [package contract](packages.md) for target validation and format rules.
