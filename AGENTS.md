@@ -94,10 +94,12 @@ The callback timer slice adds setTimeout/clearTimeout and setInterval/clearInter
 strict callback/delay validation, fixed-delay intervals, and cancellation cleanup.
 Keep `docs/timers.md` current.
 
-Phase 1 now supports local-file static ES module graphs, canonical identity,
-caching, linking/evaluation, cycles and host-backed top-level await. Keep
-`docs/modules.md` and `docs/phase-1.md` current. The next slice is dynamic imports
-and import.meta metadata. Package resolution and CommonJS remain separate tasks.
+Phase 1 now supports local-file static and dynamic ES module graphs, canonical
+identity, caching, linking/evaluation, cycles and host-backed top-level await.
+Dynamic failures reject catchable Promises; import.meta exposes canonical file
+URLs and an entrypoint flag. Keep `docs/modules.md` and `docs/phase-1.md` current.
+The next slice is the `rustyjs:*` built-in namespace. Package resolution and
+CommonJS remain separate tasks.
 
 GitHub ruleset `27446578` was created and verified active on 2026-11-17, targeting
 `refs/heads/main`: pull requests required, force pushes and deletion blocked, no

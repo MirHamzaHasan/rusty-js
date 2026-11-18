@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use url::Url;
 
 use crate::{JsError, JsRuntime, caught_error, message_error};
 
@@ -14,21 +15,43 @@ struct CachedModule {
     evaluation: Option<v8::Global<v8::Promise>>,
 }
 
+struct ImportRequest {
+    resolver: v8::Global<v8::PromiseResolver>,
+    specifier: String,
+    referrer: String,
+}
+
+struct ImportWaiter {
+    resolver: v8::Global<v8::PromiseResolver>,
+    path: PathBuf,
+}
+
+struct LoadFailure {
+    diagnostic: JsError,
+    exception: Option<v8::Global<v8::Value>>,
+}
+
 #[derive(Default)]
 pub(crate) struct ModuleMap {
     entries: HashMap<PathBuf, CachedModule>,
     edges: HashMap<(PathBuf, String), PathBuf>,
     active: HashSet<PathBuf>,
+    requests: Vec<ImportRequest>,
+    waiters: Vec<ImportWaiter>,
+    main: Option<PathBuf>,
 }
 
 impl ModuleMap {
     pub fn cancel(&mut self) {
         self.active.clear();
+        self.requests.clear();
+        self.waiters.clear();
     }
     pub fn clear(&mut self) {
-        self.active.clear();
+        self.cancel();
         self.entries.clear();
         self.edges.clear();
+        self.main = None;
     }
 
     fn rollback(&mut self, staged: &[PathBuf]) {
@@ -51,7 +74,10 @@ impl JsRuntime {
     /// Start a local-file ESM graph, then drain its initial microtasks.
     /// Call run_event_loop to finish host-backed top-level await and callback work.
     pub fn execute_module(&mut self, path: impl AsRef<Path>) -> Result<(), JsError> {
-        let result = self.start_module(path.as_ref());
+        let result = self
+            .start_module(path.as_ref(), true)
+            .map(|_| ())
+            .map_err(|failure| failure.diagnostic);
         let checkpoint = self.checkpoint();
         let result = result.and(checkpoint);
         if result.is_err() {
@@ -60,7 +86,7 @@ impl JsRuntime {
         result
     }
 
-    fn start_module(&mut self, path: &Path) -> Result<(), JsError> {
+    fn start_module(&mut self, path: &Path, watch: bool) -> Result<PathBuf, LoadFailure> {
         let origin = path.to_string_lossy().into_owned();
         self.state.borrow_mut().origin = origin.clone();
         v8::scope!(let scope, &mut self.isolate);
@@ -90,10 +116,13 @@ impl JsRuntime {
                 return Err(caught_error(scope, &entry.to_string_lossy()));
             }
             evaluation_started = true;
+            if watch && self.modules.borrow().main.is_none() {
+                self.modules.borrow_mut().main = Some(entry.clone());
+            }
             if !already_started {
                 if module.get_status() == v8::ModuleStatus::Errored {
-                    let message = v8::Exception::create_message(scope, module.get_exception());
-                    return Err(message_error(scope, message, &entry.to_string_lossy()));
+                    scope.throw_exception(module.get_exception());
+                    return Err(caught_error(scope, &entry.to_string_lossy()));
                 }
                 let value = module
                     .evaluate(scope)
@@ -115,13 +144,129 @@ impl JsRuntime {
                     .ok_or_else(|| JsError::host("entry module was not cached", &origin))?
                     .evaluation = Some(v8::Global::new(scope, promise));
             }
-            self.modules.borrow_mut().active.insert(entry);
-            Ok(())
+            if watch {
+                self.modules.borrow_mut().active.insert(entry.clone());
+            }
+            Ok(entry)
         })();
         if result.is_err() && !evaluation_started {
             self.modules.borrow_mut().rollback(&staged);
         }
-        result
+        result.map_err(|diagnostic| LoadFailure {
+            diagnostic,
+            exception: scope
+                .exception()
+                .map(|exception| v8::Global::new(scope, exception)),
+        })
+    }
+
+    /// Drain requests outside V8 callbacks; each caller owns a separate resolver,
+    /// while evaluation and namespace identity belong to the shared module cache.
+    pub(crate) fn progress_imports(&mut self, idle: bool) -> Result<bool, JsError> {
+        let requests = std::mem::take(&mut self.modules.borrow_mut().requests);
+        let mut progressed = !requests.is_empty();
+        for request in requests {
+            let outcome = resolve_specifier(&request.specifier, &request.referrer)
+                .map_err(|diagnostic| LoadFailure {
+                    diagnostic,
+                    exception: None,
+                })
+                .and_then(|path| self.start_module(&path, false));
+            match outcome {
+                Ok(path) => self.modules.borrow_mut().waiters.push(ImportWaiter {
+                    resolver: request.resolver,
+                    path,
+                }),
+                Err(failure) => {
+                    v8::scope!(let scope, &mut self.isolate);
+                    let context = v8::Local::new(scope, &self.context);
+                    let scope = &mut v8::ContextScope::new(scope, context);
+                    v8::tc_scope!(let scope, scope);
+                    let resolver = v8::Local::new(scope, &request.resolver);
+                    let reason = match failure.exception {
+                        Some(exception) => v8::Local::new(scope, exception),
+                        None => {
+                            let message = v8::String::new(scope, &failure.diagnostic.to_string())
+                                .ok_or_else(|| {
+                                JsError::host("could not allocate import error", &request.referrer)
+                            })?;
+                            v8::Exception::type_error(scope, message)
+                        }
+                    };
+                    if resolver.reject(scope, reason) != Some(true) {
+                        return Err(caught_error(scope, &request.referrer));
+                    }
+                }
+            }
+        }
+        let waiters = std::mem::take(&mut self.modules.borrow_mut().waiters);
+        let idle = idle
+            && self.state.borrow().requests.is_empty()
+            && self.state.borrow().timers.is_empty();
+        v8::scope!(let scope, &mut self.isolate);
+        let context = v8::Local::new(scope, &self.context);
+        let scope = &mut v8::ContextScope::new(scope, context);
+        v8::tc_scope!(let scope, scope);
+        // Ready settlements may unblock other evaluations at the next checkpoint.
+        // At true idle reject only the newest blocked import, giving an inner
+        // catch a turn to recover before rejecting its waiting importers.
+        let idle_target = if idle
+            && waiters.iter().all(|waiter| {
+                let modules = self.modules.borrow();
+                modules
+                    .entries
+                    .get(&waiter.path)
+                    .and_then(|entry| entry.evaluation.as_ref())
+                    .is_some_and(|promise| {
+                        v8::Local::new(scope, promise).state() == v8::PromiseState::Pending
+                    })
+            }) {
+            waiters.len().checked_sub(1)
+        } else {
+            None
+        };
+        for (index, waiter) in waiters.into_iter().enumerate() {
+            let (module, promise) = {
+                let modules = self.modules.borrow();
+                let cached = modules
+                    .entries
+                    .get(&waiter.path)
+                    .ok_or_else(|| JsError::host("missing imported module", "<host>"))?;
+                let promise = cached
+                    .evaluation
+                    .as_ref()
+                    .ok_or_else(|| JsError::host("missing import evaluation", "<host>"))?;
+                (
+                    v8::Local::new(scope, &cached.module),
+                    v8::Local::new(scope, promise),
+                )
+            };
+            let resolver = v8::Local::new(scope, &waiter.resolver);
+            let settled = match promise.state() {
+                v8::PromiseState::Fulfilled => {
+                    resolver.resolve(scope, module.get_module_namespace())
+                }
+                v8::PromiseState::Rejected => resolver.reject(scope, promise.result(scope)),
+                v8::PromiseState::Pending if idle_target == Some(index) => {
+                    let message = v8::String::new(
+                        scope,
+                        "module evaluation is pending with no active host work",
+                    )
+                    .ok_or_else(|| JsError::host("could not allocate import error", "<host>"))?;
+                    let reason = v8::Exception::type_error(scope, message);
+                    resolver.reject(scope, reason)
+                }
+                v8::PromiseState::Pending => {
+                    self.modules.borrow_mut().waiters.push(waiter);
+                    continue;
+                }
+            };
+            progressed = true;
+            if settled != Some(true) {
+                return Err(caught_error(scope, &waiter.path.to_string_lossy()));
+            }
+        }
+        Ok(progressed)
     }
 
     pub(crate) fn check_modules(&mut self, idle: bool) -> Result<(), JsError> {
@@ -189,6 +334,127 @@ fn canonical_file(path: &Path, origin: &str) -> Result<PathBuf, JsError> {
     Ok(path)
 }
 
+fn resolve_specifier(specifier: &str, referrer: &str) -> Result<PathBuf, JsError> {
+    let fail = |message: &str| JsError::host(message, referrer);
+    let path = Path::new(specifier);
+    let url = if specifier.starts_with("file:") {
+        Url::parse(specifier).map_err(|_| fail("invalid file module URL"))?
+    } else if path.is_absolute() {
+        // Native absolute paths remain supported, including Windows drive paths.
+        Url::from_file_path(path).map_err(|_| fail("invalid absolute module path"))?
+    } else if specifier.starts_with("./") || specifier.starts_with("../") {
+        let base = canonical_file(Path::new(referrer), referrer)?;
+        Url::from_file_path(base)
+            .map_err(|_| fail("invalid module referrer path"))?
+            .join(specifier)
+            .map_err(|_| fail("invalid relative module URL"))?
+    } else {
+        return Err(fail(&format!(
+            "unsupported module specifier {specifier:?}; use an explicit local file path or file URL"
+        )));
+    };
+    if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
+        return Err(fail(
+            "module URLs must use file: without a query or fragment",
+        ));
+    }
+    // URL decoding must not turn escaped separators into additional path segments.
+    let encoded = url.path().to_ascii_lowercase();
+    if encoded.contains("%2f") || encoded.contains("%5c") {
+        return Err(fail(
+            "encoded path separators are not supported in module URLs",
+        ));
+    }
+    let path = url
+        .to_file_path()
+        .map_err(|_| fail("file URL cannot be converted to a local path"))?;
+    canonical_file(&path, referrer)
+}
+
+pub(crate) fn import_dynamic<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    _options: v8::Local<'s, v8::Data>,
+    resource: v8::Local<'s, v8::Value>,
+    specifier: v8::Local<'s, v8::String>,
+    attributes: v8::Local<'s, v8::FixedArray>,
+) -> Option<v8::Local<'s, v8::Promise>> {
+    let resolver = v8::PromiseResolver::new(scope)?;
+    let promise = resolver.get_promise(scope);
+    if attributes.length() != 0 {
+        let message = v8::String::new(scope, "import attributes are not supported")?;
+        let reason = v8::Exception::type_error(scope, message);
+        resolver.reject(scope, reason)?;
+        return Some(promise);
+    }
+    let referrer = resource.to_rust_string_lossy(scope);
+    let specifier = specifier.to_rust_string_lossy(scope);
+    let modules = scope.get_slot::<SharedModules>()?.clone();
+    modules.borrow_mut().requests.push(ImportRequest {
+        resolver: v8::Global::new(scope, resolver),
+        specifier,
+        referrer,
+    });
+    Some(promise)
+}
+
+pub(crate) fn import_with_phase<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    options: v8::Local<'s, v8::Data>,
+    resource: v8::Local<'s, v8::Value>,
+    specifier: v8::Local<'s, v8::String>,
+    phase: v8::ModuleImportPhase,
+    attributes: v8::Local<'s, v8::FixedArray>,
+) -> Option<v8::Local<'s, v8::Promise>> {
+    if phase == v8::ModuleImportPhase::kEvaluation {
+        return import_dynamic(scope, options, resource, specifier, attributes);
+    }
+    let resolver = v8::PromiseResolver::new(scope)?;
+    let message = v8::String::new(scope, "non-evaluation import phases are not supported")?;
+    let reason = v8::Exception::type_error(scope, message);
+    resolver.reject(scope, reason)?;
+    Some(resolver.get_promise(scope))
+}
+
+pub(crate) extern "C" fn initialize_meta(
+    context: v8::Local<v8::Context>,
+    module: v8::Local<v8::Module>,
+    meta: v8::Local<v8::Object>,
+) {
+    // SAFETY: V8 supplies the live context, module and metadata on its owner thread.
+    v8::callback_scope!(unsafe scope, context);
+    let Some(modules) = scope.get_slot::<SharedModules>().cloned() else {
+        return;
+    };
+    let (url, main) = {
+        let modules = modules.borrow();
+        let Some((path, _)) = modules
+            .entries
+            .iter()
+            .find(|(_, cached)| cached.module == module)
+        else {
+            return;
+        };
+        let Ok(url) = Url::from_file_path(path) else {
+            return;
+        };
+        (url.to_string(), modules.main.as_ref() == Some(path))
+    };
+    let Some(key) = v8::String::new(scope, "url") else {
+        return;
+    };
+    let Some(value) = v8::String::new(scope, &url) else {
+        return;
+    };
+    if meta.create_data_property(scope, key.into(), value.into()) != Some(true) {
+        return;
+    }
+    let Some(key) = v8::String::new(scope, "main") else {
+        return;
+    };
+    let value = v8::Boolean::new(scope, main);
+    meta.create_data_property(scope, key.into(), value.into());
+}
+
 fn load_graph(
     scope: &mut v8::PinnedRef<'_, v8::TryCatch<v8::HandleScope>>,
     modules: &SharedModules,
@@ -241,19 +507,24 @@ fn load_graph(
             let specifier = request.get_specifier().to_rust_string_lossy(scope);
             let location = module.source_offset_to_location(request.get_source_offset());
             let resolved = (|| {
-                if request.get_import_attributes().length() != 0 || request.get_phase() != v8::ModuleImportPhase::kEvaluation {
-                    return Err(JsError::host("import attributes and non-evaluation import phases are not supported", &origin));
+                if request.get_import_attributes().length() != 0
+                    || request.get_phase() != v8::ModuleImportPhase::kEvaluation
+                {
+                    return Err(JsError::host(
+                        "import attributes and non-evaluation import phases are not supported",
+                        &origin,
+                    ));
                 }
-                let import = Path::new(&specifier);
-                if !specifier.starts_with("./") && !specifier.starts_with("../") && !import.is_absolute() {
-                    return Err(JsError::host(&format!("unsupported module specifier {specifier:?}; use an explicit local file path"), &origin));
-                }
-                let parent = path.parent().ok_or_else(|| JsError::host("module has no parent directory", &origin))?;
-                canonical_file(&parent.join(import), &origin)
-            })().map_err(|mut error| {
+                resolve_specifier(&specifier, &origin)
+            })()
+            .map_err(|mut error| {
                 error.message = format!("import {specifier:?}: {}", error.message);
-                error.line = usize::try_from(location.get_line_number()).ok().and_then(|line| line.checked_add(1));
-                error.column = usize::try_from(location.get_column_number()).ok().and_then(|column| column.checked_add(1));
+                error.line = usize::try_from(location.get_line_number())
+                    .ok()
+                    .and_then(|line| line.checked_add(1));
+                error.column = usize::try_from(location.get_column_number())
+                    .ok()
+                    .and_then(|column| column.checked_add(1));
                 error
             })?;
             modules
@@ -418,6 +689,39 @@ mod tests {
             js.execute_module(path).unwrap();
             let error = js.run_event_loop().await.unwrap_err();
             assert!(error.message.contains("pending with no active host work"));
+        });
+    }
+
+    #[test]
+    fn dynamic_import_cancellation_releases_waiters_and_context_can_continue() {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let path = fixture.write("main.js", "import('./pending.mjs').then(() => globalThis.unexpected = true);");
+            fixture.write("pending.mjs", "await Rusty.sleep(2147483647);");
+            let mut js = JsRuntime::new().unwrap();
+            js.execute(&std::fs::read_to_string(&path).unwrap(), path.to_str().unwrap()).unwrap();
+            assert_eq!(js.modules.borrow().waiters.len(), 1);
+            assert!(tokio::time::timeout(std::time::Duration::from_millis(10), js.run_event_loop()).await.is_err());
+            assert!(js.modules.borrow().waiters.is_empty());
+            assert!(js.modules.borrow().requests.is_empty());
+            assert!(js.state.borrow().operations.is_empty());
+            js.execute("if (globalThis.unexpected) throw Error('cancelled import resumed'); globalThis.reused = true;", "verify.js").unwrap();
+            js.run_event_loop().await.unwrap();
+        });
+    }
+
+    #[test]
+    fn file_urls_work_for_static_and_inline_imports_with_encoded_names() {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let dependency = fixture.write("space # café.mjs", "globalThis.urlRuns = (globalThis.urlRuns ?? 0) + 1; export const value = 42;");
+            let url = Url::from_file_path(&dependency).unwrap();
+            let path = fixture.write("main.mjs", &format!("import {{value}} from '{url}'; if (value !== 42) throw Error('file URL');"));
+            let mut js = JsRuntime::new().unwrap();
+            js.execute_module(path).unwrap();
+            js.run_event_loop().await.unwrap();
+            js.execute(&format!("import('{url}').then(module => {{ if (module.value !== 42 || urlRuns !== 1) throw Error('inline URL import'); }});"), "<eval>").unwrap();
+            js.run_event_loop().await.unwrap();
         });
     }
 }

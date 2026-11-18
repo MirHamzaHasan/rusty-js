@@ -1,6 +1,6 @@
 # Supported API
 
-This is the implemented Phase 0 surface. Planned Node APIs and future AI,
+This is the implemented Phase 0/1 surface. Planned Node APIs and future AI,
 blockchain, dataframe, and GPU modules are not available yet.
 
 ## CLI
@@ -33,11 +33,14 @@ CommonJS, and a REPL are not implemented.
 
 ## ES modules
 
-Static imports accept explicit `./` / `../` paths or native OS absolute paths and
-resolve relative to the importing file. Files are canonicalized for identity and
-must exist; there is no extension/index guessing, file-URL decoding, bare-package
-lookup, or package.json format inference. Imported files are parsed as JavaScript
-modules regardless of extension. Import attributes are rejected.
+Static and dynamic imports accept explicit `./` / `../` references, native OS
+absolute paths, or `file:` URLs. Relative references resolve against the defining
+file and use URL percent decoding (`./space%20%23.mjs` addresses `space #.mjs`).
+Native absolute paths are literal filesystem paths. URL queries, fragments, and
+encoded separators are rejected. Files are canonicalized for identity and must
+exist; there is no extension/index guessing, bare-package lookup, or package.json
+format inference. Imported files are parsed as JavaScript modules regardless of
+extension. Import attributes and non-evaluation phases are rejected.
 
 Module graphs support default/named exports, re-exports, live bindings, cycles,
 and top-level await through the host Promise/timer loop. Module success and
@@ -45,9 +48,24 @@ evaluation failure are cached per runtime. Source edits need a fresh runtime to
 take effect. Compile/link failures roll back newly prepared graph entries so a
 fixed source can be retried before evaluation.
 
-A pending module evaluation with no host operations or timers is reported as an
-error rather than a successful exit. Dynamic imports and `import.meta` host
-metadata are not available yet. See the [module contract](modules.md).
+A pending entry evaluation with no host operations or timers is reported as an
+error rather than a successful exit. A dynamic import awaiting such an evaluation
+rejects with TypeError, which guest code may catch. This is the runtime's idle
+policy; it does not implement indefinite waiting for externally settled Promises.
+
+`import(specifier)` works in modules and classic scripts, returns a distinct
+Promise per call, and shares cached module evaluation/namespace identity. Load and
+resolution failures reject with TypeError; V8 compile/link exceptions and module
+evaluation rejection values are preserved. An unhandled import rejection follows
+the normal rejection policy. Inline `<eval>` has no relative file base: use an
+absolute path or file URL there. Library script origins used as relative import
+bases must name existing files.
+
+`import.meta.url` is the module's canonical, escaped file URL.
+`import.meta.main` marks the first explicit ESM entrypoint in a runtime; imported
+dependencies and modules loaded only by classic scripts have `false`. Metadata is
+created once by V8, so a later library entry call does not rewrite existing
+metadata. `import.meta.resolve` is absent. See the [module contract](modules.md).
 
 ## `console.log(...values)`
 
@@ -123,9 +141,9 @@ The [timer walkthrough](timers.md) explains scheduling and cleanup.
 | --- | --- |
 | `JsRuntime::new()` | Initialize V8 once per process, then create a private isolate and context |
 | `execute(source, origin)` | Compile/run a classic script and complete its microtask checkpoint; queue host work without waiting for it |
-| `execute_module(path)` | Prepare/link/evaluate a static local module graph and checkpoint its initial reactions; queue host work needed by top-level await |
+| `execute_module(path)` | Prepare/link/evaluate a local module graph and checkpoint its initial reactions, including dynamic import requests; queue host work needed by top-level await |
 | `run_event_loop().await` | Start queued Rust futures, settle their Promises on the isolate thread, and continue until no host work remains |
-| `cancel_pending()` | Discard queued host work and callback timers, releasing their persistent roots before the event loop starts |
+| `cancel_pending()` | Discard queued host work, callback timers, and dynamic import waiters, releasing their persistent roots before the event loop starts |
 | `JsError` | Owned message, origin, optional line/column, and optional stack text |
 
 Call the event loop inside Tokio with its time driver enabled; the CLI uses a
@@ -134,7 +152,7 @@ on one thread must be dropped in reverse creation order because of V8's entered
 isolate stack. V8 platform initialization remains alive until process exit.
 
 Dropping a running event-loop future aborts its tracked Tokio tasks and releases
-pending resolver and timer callback/argument roots. Aborted async tasks are dropped when Tokio next polls
+pending resolver, dynamic import waiter, and timer callback/argument roots. Aborted async tasks are dropped when Tokio next polls
 their cancellation; none of these tasks can touch V8. Cancellation leaves the
 corresponding JavaScript Promises pending. A caller retaining those Promises is
 responsible for its own application-level cancellation semantics. Module-cache

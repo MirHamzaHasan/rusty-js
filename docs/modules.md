@@ -1,6 +1,6 @@
 # Local-file ES modules
 
-The first Phase 1 slice loads static local module graphs and evaluates them in
+Phase 1 loads static and dynamic local module graphs and evaluates them in
 the runtime's existing context. V8 supplies JavaScript module semantics; RustyJS
 supplies file resolution, graph preparation, caching, and event-loop integration.
 
@@ -14,17 +14,26 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
 - `.mjs` CLI entrypoints use module mode automatically. `--module file` or `-m file`
   selects it explicitly for another extension. Other file entrypoints and `-e`
   retain classic-script behavior.
-- Static specifiers must start with `./` or `../`, or be native OS absolute paths.
-  Relative imports resolve from the importing file's canonical parent directory,
-  independent of the process working directory.
+- Specifiers must start with `./` or `../`, be native OS absolute paths, or use
+  `file:` URLs. Relative imports resolve against the importing file's canonical
+  URL, independent of the process working directory. The `url` crate performs URL
+  conversion; relative references are percent decoded. Native absolute paths stay
+  literal filesystem paths.
 - The target must be an existing regular file containing UTF-8 JavaScript module
-  source. Paths are literal filesystem paths: URL decoding, query/fragment
-  interpretation, extension guessing, directory indexes, and network loading are
-  absent. A file without an extension works if its exact name is requested.
+  source. URL queries/fragments and escaped path separators are rejected rather
+  than assigned separate cache identities. Extension guessing, directory indexes,
+  and HTTP loading are absent. A file without an extension works if its exact name
+  is requested. For example, `./space%20%23%20caf%C3%A9.mjs` loads `space # café.mjs`.
 - Imported files are parsed as ESM regardless of their extension. There is no
   package.json format inference, JSON loader, bare-package resolution, CommonJS,
   import attributes, or source/deferred import phases in this slice.
-- `import()` and host metadata such as `import.meta.url` are not implemented yet.
+- `import()` also works in classic files. Inline `<eval>` has no relative file
+  base; absolute paths and file URLs still work. A library script origin used as a
+  relative base must name an existing file.
+- `import.meta.url` is the canonical escaped file URL. `import.meta.main` marks
+  the first explicit ESM entrypoint; dependencies are false. Metadata is created
+  once, so loading a module dynamically before a later explicit entry call does
+  not update its already-created metadata. `import.meta.resolve` is absent.
 
 ## Walkthrough
 
@@ -61,6 +70,35 @@ cargo run --locked -- --module tests/fixtures/modules/as-js.js
     becomes a controlled error: `module evaluation is pending with no active host
     work`. It is not silent success and does not busy-spin forever.
 
+## Dynamic import walkthrough
+
+1. V8's dynamic import callback creates a Promise resolver and queues the requested
+   specifier and defining script filename. It performs no file IO or nested graph
+   evaluation inside the callback. V8 152 invokes the phase-aware callback for
+   evaluation imports too; both callback forms route to the same queue.
+2. After a microtask checkpoint, the host drains that queue on the isolate thread.
+   It uses the same resolution, graph loader, and evaluation cache as static
+   entrypoints. Repeated/concurrent calls have separate Promises but share module
+   identity, evaluation, live bindings, and the final namespace object.
+3. Each pending import retains its own `Global<PromiseResolver>` and target path.
+   Evaluation Promises are host-observed and marked handled; the returned import
+   Promise belongs to guest code and follows ordinary rejection tracking.
+4. Fulfilled evaluation resolves the caller's Promise with the module namespace.
+   Rejected evaluation forwards the original thrown value. Compile/link failures
+   preserve V8 exception types and values; host resolution/read failures use
+   TypeError. A `.catch()` or `try/await/catch` handles these failures without
+   failing an unrelated entry evaluation or cancelling its host work.
+5. Settlement is followed by another microtask checkpoint. Reactions can request
+   further imports, sleeps, or timers; the host rechecks work before awaiting or
+   declaring idle. No V8 handle or scope crosses an async suspension.
+6. At true host idle, the newest blocked import rejects with TypeError, then the
+   host checkpoints again before considering another blocked import. An inner
+   catch can therefore recover its module before a waiting importer is rejected.
+   Guest code can catch this runtime-specific idle error. A root still pending
+   afterward receives the entry idle diagnostic.
+   Cyclic top-level await that depends on its own completed evaluation cannot make
+   progress; ordinary static cycles without such an await remain supported.
+
 ## Cache and failure lifetime
 
 The cache belongs to one `JsRuntime` and retains compiled modules and entry
@@ -78,7 +116,8 @@ retrying can then work. Previously cached modules are preserved. This rollback
 happens before evaluation; it does not undo JavaScript side effects.
 
 Cancelling host work stops actively watching module evaluation and clears host
-resolver/timer roots. Module-cache handles remain intentional cache ownership.
+resolver/timer roots plus queued and pending dynamic import resolvers. Their
+caller Promises remain pending. Module-cache handles remain intentional ownership.
 A cancelled module awaiting a cancelled host Promise may remain pending in V8;
 re-entering it without new host work reports the idle-await error. Use a fresh
 runtime to restart that graph. Other scripts can still use the existing context.
@@ -95,11 +134,17 @@ so correct relative resolution cannot accidentally depend on the repository cwd.
 They cover shared graph identity, canonical path aliases, live bindings,
 re-exports, cycles, transitive top-level await, explicit `.js` module mode, load and
 link errors, rejected evaluation, and idle unresolved await.
+Dynamic checks cover concurrent evaluation, namespace identity shared with static
+imports, live bindings, nested host-backed await, classic-script imports, original
+rejection identity, catchable compile/link/load failures, escaped names, file URLs,
+metadata, and caught idle imports.
 
 Library tests cover source changes after caching, symlink aliases on Unix,
-cached failures, failed-graph rollback and retry, cancellation, and context reuse.
+cached failures, failed-graph rollback and retry, cancellation, context reuse,
+dynamic waiter cleanup, and file URLs in static and inline imports.
 The ordinary script, Promise, and callback-timer suites remain in the same run.
 
 This is a trusted local-file loader. It does not impose a filesystem sandbox,
-graph-size limit, code-execution timeout, or memory cap. Cross-platform CI is
-configured but still requires actual remote runs before claiming portability.
+graph-size limit, code-execution timeout, or memory cap. Checks currently run
+locally; the optional GitHub workflow is manual-only and stays idle. Local macOS
+results alone do not establish Windows or Linux support.
