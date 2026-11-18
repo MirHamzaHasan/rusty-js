@@ -3,6 +3,7 @@
 mod async_ops;
 mod builtins;
 mod commonjs;
+mod events;
 mod modules;
 mod packages;
 mod timers;

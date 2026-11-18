@@ -601,12 +601,14 @@ fn validate_mapped_target(target: &str, internal: bool) -> Result<(), String> {
     if !internal || target.starts_with("./") {
         return validate_target(target);
     }
-    if target.starts_with("rustyjs:") && !target.contains(['*', '?', '#', '\\', '\0']) {
+    if (target.starts_with("rustyjs:") || target.starts_with("node:"))
+        && !target.contains(['*', '?', '#', '\\', '\0'])
+    {
         return Ok(());
     }
     parse_specifier(target, "<package target>")
         .map(|_| ())
-        .map_err(|_| "imports target must be a ./ path, a package name, or a rustyjs: built-in; # aliases and other URLs are unsupported".into())
+        .map_err(|_| "imports target must be a ./ path, a package name, or a registered built-in; # aliases and other URLs are unsupported".into())
 }
 
 fn resolve_imports(specifier: &str, referrer: &str, mode: LoadMode) -> Result<ModuleId, JsError> {
@@ -654,10 +656,11 @@ fn resolve_imports(specifier: &str, referrer: &str, mode: LoadMode) -> Result<Mo
         return resolve_file_target(&manifest.directory, &target, referrer, mode)
             .map(ModuleId::File);
     }
-    if target.starts_with("rustyjs:") {
-        return Builtin::resolve(&target)
-            .map(ModuleId::Builtin)
-            .ok_or_else(|| fail(&format!("unknown built-in module {target:?}")));
+    if let Some(builtin) = Builtin::resolve(&target) {
+        return Ok(ModuleId::Builtin(builtin));
+    }
+    if target.starts_with("rustyjs:") || target.starts_with("node:") {
+        return Err(fail(&format!("unknown built-in module {target:?}")));
     }
     // External aliases resolve from the manifest, not a nested importing file.
     resolve_package(

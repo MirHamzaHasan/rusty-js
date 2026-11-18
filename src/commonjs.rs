@@ -155,12 +155,14 @@ fn parse_json<'s>(
 }
 
 fn resolve(specifier: &str, referrer: &str) -> Result<ModuleId, JsError> {
-    if specifier.starts_with("rustyjs:") {
-        return Builtin::resolve(specifier)
-            .map(ModuleId::Builtin)
-            .ok_or_else(|| {
-                JsError::host(&format!("unknown built-in module {specifier:?}"), referrer)
-            });
+    if let Some(builtin) = Builtin::resolve(specifier) {
+        return Ok(ModuleId::Builtin(builtin));
+    }
+    if specifier.starts_with("rustyjs:") || specifier.starts_with("node:") {
+        return Err(JsError::host(
+            &format!("unknown built-in module {specifier:?}"),
+            referrer,
+        ));
     }
     let path = Path::new(specifier);
     if path.is_absolute() || specifier.starts_with("./") || specifier.starts_with("../") {
@@ -208,7 +210,13 @@ fn require_resolve(
     };
     let filename = match target {
         ModuleId::File(path) => path.to_string_lossy().into_owned(),
-        ModuleId::Builtin(builtin) => builtin.specifier().into(),
+        ModuleId::Builtin(builtin) => {
+            if Builtin::resolve(&specifier) == Some(builtin) {
+                specifier
+            } else {
+                builtin.specifier().into()
+            }
+        }
     };
     if let Some(value) = v8::String::new(scope, &filename) {
         result.set(value.into());

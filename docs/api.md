@@ -1,6 +1,6 @@
 # Supported API
 
-This is the implemented Phase 0/1 surface. Planned Node APIs and future AI,
+This is the implemented Phase 0/1 and initial Phase 2 surface. Planned Node APIs and future AI,
 blockchain, dataframe, and GPU modules are not available yet.
 
 ## CLI
@@ -101,7 +101,7 @@ ESM imports expose only `default` from a CommonJS module and use the same backin
 cache as require. Mutating the captured exports object is shared; reassigning
 module.exports later does not update an evaluated ESM snapshot. `require(ESM)` is
 rejected with guidance to use dynamic import. Full Node error codes, cache
-mutation hooks, and Node built-ins are absent. See the
+mutation hooks and other Node built-ins remain absent beyond the events subset. See the
 [CommonJS walkthrough](commonjs.md) for lifetime, retry, and cancellation rules.
 
 ## `rustyjs:module`
@@ -125,6 +125,20 @@ by ESM, CommonJS, and private module aliases. No anchor source is read or execut
 no ghost main module is created, and require(ESM) remains rejected. `node:module`,
 loader hooks, and compile-cache APIs are absent. See the
 [factory walkthrough](commonjs.md#require-factories-for-esm).
+
+## EventEmitter
+
+`node:events`, `events`, and `rustyjs:events` share a constructor. ESM exposes it as
+default and EventEmitter; CommonJS require returns the constructor directly with
+a self-referential `.EventEmitter` property. No global emitter class is installed.
+
+Core methods include on/addListener, once, prependListener/prependOnceListener,
+emit, off/removeListener, removeAllListeners, listeners/rawListeners,
+listenerCount, eventNames, and listener-limit configuration. Dispatch is
+synchronous, ordered, and snapshot-based, with original error propagation and
+once re-entry protection. Promise returns are ignored; captureRejections=true is
+explicitly unsupported. See the [events contract](events.md) for meta-events,
+warnings, aliases, limits, and examples.
 
 ## `rustyjs:timers`
 

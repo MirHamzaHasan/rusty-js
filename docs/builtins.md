@@ -4,6 +4,8 @@
 second scheduler or changing their contracts. `rustyjs:module` exports
 `createRequire` for explicit CommonJS access from ESM; see the
 [factory contract](commonjs.md#require-factories-for-esm).
+The [EventEmitter module](events.md) adds rustyjs:events with explicit node:events
+and events aliases. It is bundled JavaScript rather than Rust listener dispatch.
 
 ```js
 import { sleep, setTimeout, clearTimeout } from 'rustyjs:timers';
@@ -36,7 +38,7 @@ work in classic files and inline `<eval>` without a file base. Repeated/concurre
 imports share namespace identity within one runtime. Each dynamic call still
 returns its own Promise.
 
-Only the exact registered specifier is accepted. Unknown `rustyjs:*` names,
+Only explicitly registered specifiers/aliases are accepted. Unknown `rustyjs:*` names,
 subpaths, different casing, query strings, and fragments fail without falling back
 to filesystem or package lookup. Static failures produce module diagnostics;
 dynamic failures reject with TypeError. Missing exports use V8's linking errors.
@@ -81,9 +83,10 @@ permission boundary. These functions still operate in their owning runtime.
 Synthetic modules have no user source body, so this module has no observable
 `import.meta` object. File modules keep their existing URL and entrypoint metadata.
 CLI entrypoints remain filenames; `--module rustyjs:timers` is not an entry form.
-The registry declares names per built-in identity and keeps the original native
-values in one map. Both native modules use this common ownership/evaluation path;
-only their declared named exports are available, and neither has a default export.
+The registry declares names per built-in identity and keeps captured values in
+one map. Timers and module helpers use native functions and have no default
+export. Events uses a captured JS constructor with default/named ESM exports and
+a direct CommonJS constructor route. Only declared exports are available.
 
 ## Local verification
 

@@ -21,7 +21,7 @@ ESM package resolver are implemented alongside the classic-script runner. See th
 | Scoped/unscoped node_modules lookup and self-reference | Implemented |
 | Exact/pattern exports, ordered import/default conditions, main/index entries | Implemented subset; formats and target paths are validated |
 | Fallback arrays and package-local #imports | Implemented with target/configuration error distinction and package scope boundaries |
-| CommonJS wrappers, require, cycles, retries, JSON, and default ESM bridge | Implemented subset; require(ESM), guessed named exports, and Node built-ins remain unsupported |
+| CommonJS wrappers, require, cycles, retries, JSON, and default ESM bridge | Implemented subset; require(ESM) and guessed named exports remain unsupported |
 | rustyjs:module createRequire | Implemented for explicit absolute filename/file-URL string anchors, including virtual bases |
 
 ## Validation on 2026-11-18
@@ -202,10 +202,10 @@ package/private lookup, later host turns, symlink/encoded names, unchanged main,
 and strict argument/URL validation. URL objects and Node loader hooks are not
 implemented. All checks remain local; GitHub CI stayed idle.
 
-## Next slice: Phase 2 EventEmitter
+## Phase 2 handoff
 
-Begin the minimum Node surface with synchronous EventEmitter behavior: ordered
-listeners, once/removal semantics, reentrancy, symbols, and error events. Build
-only the surface that the runtime can test and explain; package installation,
-full Node compatibility, and the later AI/native-domain facilities retain their
-separate roadmap stages.
+The minimum Node surface has started with synchronous EventEmitter behavior:
+ordered listeners, once/removal semantics, reentrancy, symbols, error events,
+meta-events, and advisory listener warnings. See [Phase 2](phase-2.md) for current
+evidence and the next binary-buffer slice. Package installation, full Node
+compatibility, and later AI/native-domain facilities retain separate roadmap stages.
