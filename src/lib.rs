@@ -1,6 +1,7 @@
 //! V8 execution and a Tokio-driven host Promise bridge, owned by one thread.
 
 mod async_ops;
+mod builtins;
 mod modules;
 mod timers;
 
@@ -94,6 +95,11 @@ impl JsRuntime {
                 .ok_or_else(|| JsError::host("could not install Rusty.sleep", "<host>"))?;
             timers::install(scope, context)
                 .ok_or_else(|| JsError::host("could not install callback timers", "<host>"))?;
+            modules.borrow_mut().timer_exports = Some(
+                builtins::TimerExports::capture(scope, context).ok_or_else(|| {
+                    JsError::host("could not capture built-in timer exports", "<host>")
+                })?,
+            );
             v8::Global::new(scope, context)
         };
         Ok(Self {

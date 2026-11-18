@@ -6,13 +6,15 @@ checkpoint rejection detection, and callback timers are implemented.
 V8 is pinned to 152.2.0 and dependencies are
 recorded in `Cargo.lock`. Hamza authorized implementation assistance on 2026-11-17.
 
-Phase 1 now adds a separate isolate-local module map containing canonical paths,
+Phase 1 now adds a separate isolate-local module map containing file/built-in IDs,
 compiled module handles, resolved graph edges, and entry evaluation Promises.
 Dynamic import requests and resolver roots stay in that map on the owner thread.
 The host loads requests outside V8 callbacks, observes evaluation, settles import
 Promises, and checkpoints again. Active entry evaluation is checked after those
 steps and before idle exit. See [module design](modules.md) for cache lifetime,
 file URL semantics, metadata, idle recovery, and cancellation semantics.
+Native modules use V8 synthetic modules and captured native function handles;
+the [built-in walkthrough](builtins.md) explains their lifetime and exports.
 
 ## Decision: one thread owns JavaScript
 
