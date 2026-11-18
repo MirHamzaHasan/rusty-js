@@ -45,6 +45,9 @@ status 1; successful scripts exit with status 0. Script return values are ignore
 
 ## Check
 
+Checks run locally. GitHub Actions is manual-only and is not part of the current
+development gate.
+
 ```sh
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings

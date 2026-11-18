@@ -23,6 +23,11 @@ updating documentation, running real tests, and committing/pushing tested work t
 GitHub incrementally. Use Git and the GitHub integration; never invoke `gh`,
 including through a Git credential helper. Preserve the full product roadmap.
 
+On 2026-11-19 the owner directed local testing only and no GitHub CI for now.
+Do not trigger GitHub Actions or add automatic CI triggers. The workflow is
+manual-only; leave it idle unless the owner explicitly asks for remote checks.
+Run formatting, Clippy, tests, and documentation checks locally before publishing.
+
 ## Product and scope
 
 Rust host, V8 guest through rusty_v8, and Tokio driving async work. This is a

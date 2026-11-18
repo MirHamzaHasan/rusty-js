@@ -1,9 +1,6 @@
-name: Rust
+name: Manual Rust checks
 
 on:
-  push:
-    branches-ignore: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
