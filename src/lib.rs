@@ -5,6 +5,7 @@ mod buffer;
 mod builtins;
 mod commonjs;
 mod events;
+mod host;
 mod modules;
 mod packages;
 mod paths;
@@ -19,6 +20,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use async_ops::{HostState, SharedState};
+pub use host::RuntimeOptions;
 
 static V8_INITIALIZED: OnceLock<()> = OnceLock::new();
 
@@ -72,11 +74,17 @@ pub struct JsRuntime {
     state: SharedState,
     modules: modules::SharedModules,
     commonjs: commonjs::SharedCommonJs,
+    host: host::SharedHost,
     isolate: v8::OwnedIsolate,
 }
 
 impl JsRuntime {
     pub fn new() -> Result<Self, JsError> {
+        Self::with_options(RuntimeOptions::default())
+    }
+
+    /// Create a context with an explicit guest command line and environment snapshot.
+    pub fn with_options(options: RuntimeOptions) -> Result<Self, JsError> {
         V8_INITIALIZED.get_or_init(|| {
             let platform = v8::new_default_platform(0, false).make_shared();
             v8::V8::initialize_platform(platform);
@@ -84,6 +92,10 @@ impl JsRuntime {
         });
 
         let mut isolate = v8::Isolate::new(Default::default());
+        let host = Rc::new(
+            host::HostState::new(options).map_err(|message| JsError::host(&message, "<host>"))?,
+        );
+        isolate.set_slot(host.clone());
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         isolate.set_promise_reject_callback(async_ops::promise_rejected);
         isolate.set_host_import_module_dynamically_callback(modules::import_dynamic);
@@ -115,8 +127,14 @@ impl JsRuntime {
             state,
             modules,
             commonjs,
+            host,
             isolate,
         })
+    }
+
+    /// The guest's requested eventual status; this never exits the embedding process.
+    pub fn exit_code(&self) -> Option<u8> {
+        self.host.exit_code.get()
     }
 
     /// Compile and execute a classic script in this runtime's persistent context.
@@ -362,6 +380,7 @@ impl Drop for JsRuntime {
         self.isolate.remove_slot::<SharedState>();
         self.isolate.remove_slot::<modules::SharedModules>();
         self.isolate.remove_slot::<commonjs::SharedCommonJs>();
+        self.isolate.remove_slot::<host::SharedHost>();
     }
 }
 

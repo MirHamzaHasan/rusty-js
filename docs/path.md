@@ -13,8 +13,8 @@ console.log(path.resolve('data')); // anchored to the host cwd
 ```
 
 Run `cargo run --locked -- examples/path/main.mjs`. No global path object is
-installed. os/process modules are subsequent work, not implied by cwd-backed
-path resolution.
+installed. [OS/process modules](host.md) provide separate metadata and host facts;
+path resolution itself does not change their argument or environment state.
 
 ## Exports and identity
 

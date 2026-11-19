@@ -48,7 +48,7 @@ fn validates_arguments_and_missing_files() {
         vec!["--module"],
         vec!["--unknown"],
         vec!["--"],
-        vec!["-e", "1", "extra"],
+        vec!["--help", "extra"],
         vec!["/does-not-exist/rustyjs.js"],
     ] {
         let output = run(&args);

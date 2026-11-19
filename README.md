@@ -41,6 +41,8 @@ Async iteration supports early-exit cleanup. finished/pipeline helpers and
 stream/promises aliases observe completion and supervise peer cleanup on failure.
 Path utilities add POSIX/Windows lexical operations and explicit variant aliases;
 relative resolution reads host cwd without opening or canonicalizing files.
+OS/process metadata adds script arguments, runtime-local environment snapshots,
+monotonic clocks, host facts, and an eventual exitCode after async work drains.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -68,6 +70,7 @@ cargo run --locked -- examples/streams/pipe.mjs
 cargo run --locked -- examples/streams/iterate.mjs
 cargo run --locked -- examples/streams/pipeline.mjs
 cargo run --locked -- examples/path/main.mjs
+cargo run --locked -- examples/host/main.mjs one --flag
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -103,6 +106,7 @@ See [EventEmitter](docs/events.md), [Buffer](docs/buffer.md), [Writable](docs/st
 [Readable and pipes](docs/readable.md),
 [async consumers and lifecycle helpers](docs/stream-lifecycle.md),
 [path utilities](docs/path.md),
+[OS/process configuration](docs/host.md),
 and [Phase 2 progress](docs/phase-2.md) for the
 initial Node surface and remaining milestones.
 
