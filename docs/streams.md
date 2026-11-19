@@ -2,7 +2,8 @@
 
 The stream module provides named `Writable` and `Readable` exports from `rustyjs:stream`,
 `node:stream`, and `stream`. Aliases share one ESM namespace and constructor.
-CommonJS returns a cached `{Writable, Readable}` object. Writable extends the existing
+CommonJS returns a cached object containing those constructors and the
+[finished/pipeline helpers](stream-lifecycle.md). Writable extends the existing
 [EventEmitter](events.md) and uses [Buffer](buffer.md) for byte chunks.
 There is no global stream class or default ESM export yet.
 This page covers Writable. See [Readable and piping](readable.md) for pulls,
@@ -132,7 +133,7 @@ EventEmitter dispatch method. Captured intrinsics are API stability measures,
 not a hardened realm or preemption mechanism. A long microtask chain can delay
 Tokio progress.
 
-Duplex/Transform, pipeline/finished, async consumer iteration, web
+Duplex/Transform and web
 streams, AbortSignal, `_construct`, `_writev`, and broad Node option/internal
 compatibility are not implemented yet. Known unsupported construct/writev/signal
 options throw rather than silently succeeding. Unknown options are ignored.

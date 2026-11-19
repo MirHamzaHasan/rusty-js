@@ -53,6 +53,7 @@ function finishDestroy(stream, state, reason) {
     }
     defer(() => {
         state.closed = true;
+        Lifecycle.notify(stream);
         if (state.emitClose) emit(stream, 'close');
     });
 }
@@ -73,6 +74,7 @@ function destroy(stream, state, reason) {
         defer(() => callback(pendingError));
     }
     state.endCallbacks = [];
+    Lifecycle.notify(stream);
     let called = false;
     const done = result => {
         if (called) return; // Destruction is idempotent even for a faulty cleanup hook.
@@ -90,7 +92,7 @@ function finalize(stream, state) {
     const done = reason => {
         if (called) { destroy(stream, state, state.error ?? error('Callback called more than once', 'ERR_MULTIPLE_CALLBACK')); return; }
         called = true;
-        if (reason != null && state.error === null) state.error = reason;
+        if (reason != null && state.error === null) { state.error = reason; Lifecycle.notify(stream); }
         defer(() => {
             if (state.destroyed) return;
             if (reason != null) { destroy(stream, state, reason); return; }
@@ -98,6 +100,7 @@ function finalize(stream, state) {
             defer(() => {
                 if (state.destroyed) return;
                 state.finished = true;
+                Lifecycle.notify(stream);
                 // A listener exception must not prevent end callbacks or cleanup.
                 try { emit(stream, 'finish'); }
                 finally {
@@ -124,13 +127,14 @@ function pump(stream, state) {
         if (state.destroyed) return;
         if (called) { destroy(stream, state, state.error ?? error('Callback called more than once', 'ERR_MULTIPLE_CALLBACK')); return; }
         called = true;
-        if (reason != null && state.error === null) state.error = reason;
+        if (reason != null && state.error === null) { state.error = reason; Lifecycle.notify(stream); }
         defer(() => {
             if (state.destroyed || state.active !== record) return;
             if (reason != null) { destroy(stream, state, reason); return; }
             state.active = null;
             state.completing = true;
             state.length -= record.size;
+            Lifecycle.notify(stream);
             if (state.needDrain && state.length === 0 && !state.ending) {
                 defer(() => {
                     if (!state.destroyed && !state.ending && state.length === 0 && state.needDrain) {
@@ -140,7 +144,7 @@ function pump(stream, state) {
                 });
             }
             settle(record);
-            defer(() => { state.completing = false; pump(stream, state); });
+            defer(() => { state.completing = false; Lifecycle.notify(stream); pump(stream, state); });
         });
     };
     try { apply(stream._write, stream, [record.chunk, record.encoding, done]); }
@@ -162,7 +166,7 @@ class Writable extends EventEmitter {
                 define(this, method, {value: options[option], writable: true, configurable: true});
             }
         }
-        weakSet(states, this, {
+        const state = {
             queue: [], active: null, completing: false, length: 0, highWaterMark, objectMode,
             decodeStrings: optionBoolean(options, 'decodeStrings', true),
             defaultEncoding: options.defaultEncoding === undefined ? 'utf8' : validateEncoding(options.defaultEncoding),
@@ -170,7 +174,9 @@ class Writable extends EventEmitter {
             emitClose: optionBoolean(options, 'emitClose', true),
             corked: 0, needDrain: false, ending: false, finalizing: false, finished: false,
             destroyed: false, closed: false, error: null, errorEmitted: false, endCallbacks: [],
-        });
+        };
+        weakSet(states, this, state);
+        Lifecycle.register(this, 'writable', state);
     }
     _write(chunk, encoding, callback) { callback(error('_write is not implemented', 'ERR_METHOD_NOT_IMPLEMENTED')); }
     _final(callback) { callback(); }

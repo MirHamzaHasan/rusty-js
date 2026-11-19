@@ -135,8 +135,15 @@ multi-destination pipe backpressure, EOF/destruction, and sync/async iterable
 producers through Readable.from. Keep `docs/readable.md` current. Remove a pipe's
 registry identity before guest metadata callbacks; cleanup must survive re-entry
 and listener throws. Pipe is not a pipeline supervisor: explicitly clean up peers
-on error. Consumer async iteration and pipeline/finished helpers are next before
-filesystem/network-backed streams; streaming text decoding is still separate.
+on error. Consumer async iteration and pipeline/finished helpers now supervise
+registered streams, including close-event suppression and early iterator exit.
+Keep `docs/stream-lifecycle.md` current. Private lifecycle observation must detach
+at settlement; finished retains its public late-error guard by default until
+explicit cleanup, while pipeline/iterators clean up automatically. Preserve the
+first recorded failure across peer destruction and cleanup errors. Pipeline is
+currently a two-endpoint Readable/iterable-to-Writable surface; transform stages
+and third-party/web adapters remain separate work. Next add bounded path/os/process
+before filesystem/network-backed streams; streaming text decoding is still separate.
 The high-water mark is advisory; no runtime memory budget is implied.
 No package manager or full Node compatibility is implied.
 

@@ -156,7 +156,8 @@ strict validation, unsupported APIs, and local correctness evidence.
 ## Streams
 
 `node:stream`, `stream`, and `rustyjs:stream` export named Writable and Readable
-constructors; CommonJS returns `{Writable, Readable}`. Writable extends EventEmitter and provides
+constructors, callback finished/pipeline helpers, and a promises object.
+CommonJS exposes the same values. Writable extends EventEmitter and provides
 serialized write/end hooks, byte/object modes, high-water-mark backpressure and
 drain, cork/uncork, finish/error/close, and destruction cleanup. Completion uses
 Promise checkpoints rather than Node nextTick scheduling. See the [Writable contract](streams.md).
@@ -164,8 +165,16 @@ Promise checkpoints rather than Node nextTick scheduling. See the [Writable cont
 Readable adds byte/object push/read, EOF, unshift, readable/data modes, pause/resume,
 pipe/unpipe with multiple-destination backpressure, and Readable.from for sync/async
 iterable producers. Pipes do not automatically destroy the peer on error. Consumer
-async iteration, text decoding, other stream classes, and lifecycle helpers remain
-separate work. See [Readable](readable.md) for ownership, scheduling, and cleanup.
+async iteration supports early-exit cleanup and iterator({destroyOnReturn:false})
+preservation. Text decoding and other stream classes remain separate work.
+See [Readable](readable.md) for ownership, scheduling, and cleanup.
+
+`node:stream/promises`, `stream/promises`, and `rustyjs:stream/promises` expose
+Promise finished/pipeline helpers. finished observes registered streams without
+consuming; pipeline supervises a Readable/iterable source and Writable destination,
+propagates the first failure, and waits for peer cleanup. Callback forms live in
+the main module. See [lifecycle contracts](stream-lifecycle.md) for options,
+guard retention, supported endpoints, and cancellation limits.
 
 ## `rustyjs:timers`
 
