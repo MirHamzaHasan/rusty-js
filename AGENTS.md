@@ -142,8 +142,13 @@ at settlement; finished retains its public late-error guard by default until
 explicit cleanup, while pipeline/iterators clean up automatically. Preserve the
 first recorded failure across peer destruction and cleanup errors. Pipeline is
 currently a two-endpoint Readable/iterable-to-Writable surface; transform stages
-and third-party/web adapters remain separate work. Next add bounded path/os/process
-before filesystem/network-backed streams; streaming text decoding is still separate.
+and third-party/web adapters remain separate work. Path now adds POSIX/Windows
+lexical utilities, shared variant/default/CommonJS objects, and a private cwd
+callback. Keep `docs/path.md` current. This does not canonicalize files, enforce
+permissions, or implement Windows per-drive cwd entries. Cwd errors must remain
+catchable; absolute anchors should avoid unnecessary cwd reads. Next add bounded
+os/process metadata before filesystem/network-backed streams; streaming text
+decoding is still separate.
 The high-water mark is advisory; no runtime memory budget is implied.
 No package manager or full Node compatibility is implied.
 

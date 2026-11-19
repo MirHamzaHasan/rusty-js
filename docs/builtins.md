@@ -14,6 +14,10 @@ The [stream module](streams.md) exports Writable, [Readable](readable.md), and
 rustyjs:stream/node:stream/stream. Its constructor captures the existing
 EventEmitter and Buffer identities. The stream/promises variants share Promise
 helper functions and the object exported as stream.promises through CommonJS.
+The [path module](path.md) adds path/node:path/rustyjs:path and explicit
+posix/win32 subpaths. Its default/CommonJS value is the shared variant object;
+named functions are captured independently. Only relative resolution crosses
+into the native cwd callback.
 
 ```js
 import { sleep, setTimeout, clearTimeout } from 'rustyjs:timers';

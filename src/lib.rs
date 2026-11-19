@@ -7,6 +7,7 @@ mod commonjs;
 mod events;
 mod modules;
 mod packages;
+mod paths;
 mod streams;
 mod timers;
 

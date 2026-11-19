@@ -101,7 +101,7 @@ ESM imports expose only `default` from a CommonJS module and use the same backin
 cache as require. Mutating the captured exports object is shared; reassigning
 module.exports later does not update an evaluated ESM snapshot. `require(ESM)` is
 rejected with guidance to use dynamic import. Full Node error codes, cache
-mutation hooks and most Node built-ins remain absent beyond events, Buffer, and streams. See the
+mutation hooks and most Node built-ins remain absent beyond events, Buffer, streams, and path. See the
 [CommonJS walkthrough](commonjs.md) for lifetime, retry, and cancellation rules.
 
 ## `rustyjs:module`
@@ -192,6 +192,20 @@ Inline code can dynamically import this module without a file base.
 There is no default export. Unknown names, aliases, subpaths, URL suffixes, and
 import attributes are rejected. `node:timers` and `node:timers/promises` are not
 implemented. See [built-in modules](builtins.md) for ownership and error details.
+
+## Path utilities
+
+`path`, `node:path`, and `rustyjs:path` expose the host variant as default and
+CommonJS object, with named lexical utilities and posix/win32 objects. Explicit
+path/posix and path/win32 aliases also work with all three prefixes. Functions
+include resolve, normalize, isAbsolute, join, relative, toNamespacedPath, dirname,
+basename, extname, format, and parse, plus sep/delimiter constants.
+
+Relative resolve reads host cwd through a private synchronous callback; other
+operations do not read files or canonicalize symlinks. Strict string/format-field
+validation, cwd failures, Windows drive-state limits, and selected compatibility
+evidence are documented in the [path contract](path.md). There is no global path,
+process.chdir, or glob API in this slice.
 
 ## `console.log(...values)`
 
