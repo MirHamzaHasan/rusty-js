@@ -11,7 +11,8 @@ compatibility target or a package/tooling replacement.
 | Writable streams | Implemented subset; see [streams](streams.md) for backpressure, lifecycle, and scheduling |
 | Readable and piping | Implemented subset; see [Readable](readable.md) for producer/consumer modes and cleanup |
 | Async stream consumers and lifecycle helpers | Implemented subset; see [lifecycle helpers](stream-lifecycle.md) for cleanup and scoped pipeline behavior |
-| path, os, process | Next bounded surface |
+| path utilities | Implemented lexical POSIX/Windows subset; see [path](path.md) for validation and host limits |
+| os, process | Next bounded surface |
 | fs and crypto | Planned |
 | fetch, Request/Response, URL | Planned |
 | Express/package-suite compatibility | Future validation milestone when its required surface exists |
@@ -20,9 +21,9 @@ compatibility target or a package/tooling replacement.
 
 Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 
-- `cargo test --locked`: 168 passed: 18 library, 12 Buffer CLI, 15 general CLI,
+- `cargo test --locked`: 178 passed: 18 library, 12 Buffer CLI, 15 general CLI,
   14 CommonJS CLI, 11 events CLI, 16 module CLI, 21 package CLI, 23 Readable CLI,
-  16 Writable CLI, and 22 stream lifecycle CLI tests.
+  16 Writable CLI, 22 stream lifecycle CLI, and 10 path CLI tests.
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
 - `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
@@ -32,7 +33,8 @@ Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 - Readable/pipe example printed `hello world` through an asynchronous sink.
 - Async iteration example released its generator and reported closed after break.
 - Supervised pipeline example printed `hello world` and `closed: true true`.
-- Markdown links and whitespace: valid across eighteen project documents.
+- Path example printed `app/main.js`, `C:\data\rows.csv`, and `rows .csv`.
+- Markdown links and whitespace: valid across nineteen project documents.
 
 Event tests exercise synchronous order and receivers, mutation snapshots,
 duplicates, once reentrancy, listener metadata, symbols/property keys, errors,
@@ -81,10 +83,18 @@ peer destruction, and clean up observers. Pipeline currently connects two endpoi
 transform/function stages remain separate work. Twenty-two lifecycle tests and
 a selected 384-entry corpus matching Node v20.19.4 provide local correctness evidence.
 
-## Next slice: path/os/process
+## Path slice
 
-Add bounded path utilities, host facts, and CLI process metadata, then move to
-filesystem, crypto, and web APIs. Keep host IO permissions explicit for the later
+Path provides lexical utilities and shared POSIX/Windows variant aliases, with
+cwd-backed resolution and controlled cwd errors. Ten local tests and a selected
+1,760-entry corpus matching Node v20.19.4 cover string behavior and identities.
+The invalid-byte cwd fixture is Linux-only and unrun here; Windows per-drive cwd
+entries and platform build validation remain separate work.
+
+## Next slice: os/process
+
+Add bounded host facts and CLI process metadata, then move to filesystem, crypto,
+and web APIs. Keep host IO permissions explicit for the later
 AI sandbox phase; no security boundary exists yet.
 Incremental text decoding remains explicit work. Do not expand into full Node compatibility.
 Preserve the later AI, blockchain, dataframe, and GPU roadmap without claiming

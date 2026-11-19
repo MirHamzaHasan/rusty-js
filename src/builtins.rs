@@ -11,6 +11,9 @@ pub(crate) enum Builtin {
     Buffer,
     Stream,
     StreamPromises,
+    Path,
+    PathPosix,
+    PathWin32,
 }
 
 impl Builtin {
@@ -24,6 +27,9 @@ impl Builtin {
             "rustyjs:stream/promises" | "node:stream/promises" | "stream/promises" => {
                 Some(Self::StreamPromises)
             }
+            "rustyjs:path" | "node:path" | "path" => Some(Self::Path),
+            "rustyjs:path/posix" | "node:path/posix" | "path/posix" => Some(Self::PathPosix),
+            "rustyjs:path/win32" | "node:path/win32" | "path/win32" => Some(Self::PathWin32),
             _ => None,
         }
     }
@@ -36,6 +42,9 @@ impl Builtin {
             Self::Buffer => "rustyjs:buffer",
             Self::Stream => "rustyjs:stream",
             Self::StreamPromises => "rustyjs:stream/promises",
+            Self::Path => "rustyjs:path",
+            Self::PathPosix => "rustyjs:path/posix",
+            Self::PathWin32 => "rustyjs:path/win32",
         }
     }
 
@@ -47,6 +56,7 @@ impl Builtin {
             Self::Buffer => &["Buffer"],
             Self::Stream => &["Writable", "Readable", "finished", "pipeline", "promises"],
             Self::StreamPromises => &["finished", "pipeline"],
+            Self::Path | Self::PathPosix | Self::PathWin32 => &PATH_NAMES,
         }
     }
 }
@@ -57,6 +67,25 @@ const TIMER_NAMES: [&str; 5] = [
     "clearTimeout",
     "setInterval",
     "clearInterval",
+];
+
+const PATH_NAMES: [&str; 16] = [
+    "default",
+    "resolve",
+    "normalize",
+    "isAbsolute",
+    "join",
+    "relative",
+    "toNamespacedPath",
+    "dirname",
+    "basename",
+    "extname",
+    "format",
+    "parse",
+    "sep",
+    "delimiter",
+    "posix",
+    "win32",
 ];
 
 pub(crate) struct NativeExports(HashMap<Builtin, Vec<v8::Global<v8::Value>>>);
@@ -85,7 +114,7 @@ impl NativeExports {
         if global.create_data_property(scope, key.into(), buffer) != Some(true) {
             return None;
         }
-        Some(Self(HashMap::from([
+        let mut exports = HashMap::from([
             (Builtin::Buffer, vec![v8::Global::new(scope, buffer)]),
             (
                 Builtin::Stream,
@@ -115,7 +144,28 @@ impl NativeExports {
                     v8::Global::new(scope, events),
                 ],
             ),
-        ])))
+        ]);
+        let path = crate::paths::create(scope)?;
+        for (builtin, property) in [
+            (Builtin::Path, None),
+            (Builtin::PathPosix, Some("posix")),
+            (Builtin::PathWin32, Some("win32")),
+        ] {
+            let object = if let Some(property) = property {
+                let key = v8::String::new(scope, property)?;
+                v8::Local::<v8::Object>::try_from(path.get(scope, key.into())?).ok()?
+            } else {
+                path
+            };
+            let mut values = vec![v8::Global::new(scope, v8::Local::<v8::Value>::from(object))];
+            for name in &PATH_NAMES[1..] {
+                let key = v8::String::new(scope, name)?;
+                let value = object.get(scope, key.into())?;
+                values.push(v8::Global::new(scope, value));
+            }
+            exports.insert(builtin, values);
+        }
+        Some(Self(exports))
     }
 }
 
@@ -151,7 +201,10 @@ pub(crate) fn commonjs_object<'s>(
             .map(|function| v8::Local::new(scope, function))
             .collect::<Vec<_>>()
     };
-    if builtin == Builtin::Events {
+    if matches!(
+        builtin,
+        Builtin::Events | Builtin::Path | Builtin::PathPosix | Builtin::PathWin32
+    ) {
         return v8::Local::<v8::Object>::try_from(functions[0]).ok();
     }
     let object = v8::Object::new(scope);
