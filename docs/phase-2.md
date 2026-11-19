@@ -12,7 +12,7 @@ compatibility target or a package/tooling replacement.
 | Readable and piping | Implemented subset; see [Readable](readable.md) for producer/consumer modes and cleanup |
 | Async stream consumers and lifecycle helpers | Implemented subset; see [lifecycle helpers](stream-lifecycle.md) for cleanup and scoped pipeline behavior |
 | path utilities | Implemented lexical POSIX/Windows subset; see [path](path.md) for validation and host limits |
-| os, process | Next bounded surface |
+| os, process | Implemented bounded metadata/host subset; see [host](host.md) |
 | fs and crypto | Planned |
 | fetch, Request/Response, URL | Planned |
 | Express/package-suite compatibility | Future validation milestone when its required surface exists |
@@ -21,9 +21,9 @@ compatibility target or a package/tooling replacement.
 
 Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 
-- `cargo test --locked`: 178 passed: 18 library, 12 Buffer CLI, 15 general CLI,
+- `cargo test --locked`: 189 passed: 18 library, 12 Buffer CLI, 15 general CLI,
   14 CommonJS CLI, 11 events CLI, 16 module CLI, 21 package CLI, 23 Readable CLI,
-  16 Writable CLI, 22 stream lifecycle CLI, and 10 path CLI tests.
+  16 Writable CLI, 22 stream lifecycle CLI, 10 path CLI, and 11 host tests.
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
 - `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
@@ -34,7 +34,8 @@ Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 - Async iteration example released its generator and reported closed after break.
 - Supervised pipeline example printed `hello world` and `closed: true true`.
 - Path example printed `app/main.js`, `C:\data\rows.csv`, and `rows .csv`.
-- Markdown links and whitespace: valid across nineteen project documents.
+- Host example reported the runtime/target, forwarded script arguments, and drained async work.
+- Markdown links and whitespace: valid across twenty project documents.
 
 Event tests exercise synchronous order and receivers, mutation snapshots,
 duplicates, once reentrancy, listener metadata, symbols/property keys, errors,
@@ -91,10 +92,16 @@ cwd-backed resolution and controlled cwd errors. Ten local tests and a selected
 The invalid-byte cwd fixture is Linux-only and unrun here; Windows per-drive cwd
 entries and platform build validation remain separate work.
 
-## Next slice: os/process
+## OS/process slice
 
-Add bounded host facts and CLI process metadata, then move to filesystem, crypto,
-and web APIs. Keep host IO permissions explicit for the later
+OS/process provide host facts, explicit library options, CLI argument forwarding,
+local environment views, clocks, and eventual status after async draining. Eleven
+host tests cover those contracts and recovery/isolation. Process events, stdio,
+nextTick, immediate exit, and broader OS reporting remain separate work.
+
+## Remaining Phase 2 work
+
+Filesystem, crypto, and web APIs remain planned. Keep host IO permissions explicit for the later
 AI sandbox phase; no security boundary exists yet.
 Incremental text decoding remains explicit work. Do not expand into full Node compatibility.
 Preserve the later AI, blockchain, dataframe, and GPU roadmap without claiming

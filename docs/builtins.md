@@ -18,6 +18,9 @@ The [path module](path.md) adds path/node:path/rustyjs:path and explicit
 posix/win32 subpaths. Its default/CommonJS value is the shared variant object;
 named functions are captured independently. Only relative resolution crosses
 into the native cwd callback.
+The [OS/process modules](host.md) add os/node:os/rustyjs:os and
+process/node:process/rustyjs:process. Defaults/CommonJS use their original objects;
+the process object is also global. Named exports capture initial values/functions.
 
 ```js
 import { sleep, setTimeout, clearTimeout } from 'rustyjs:timers';

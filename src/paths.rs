@@ -40,7 +40,7 @@ pub(crate) fn create<'s>(scope: &mut v8::PinScope<'s, '_>) -> Option<v8::Local<'
     .ok()
 }
 
-fn cwd(
+pub(crate) fn cwd(
     scope: &mut v8::PinScope,
     _args: v8::FunctionCallbackArguments,
     mut result: v8::ReturnValue,

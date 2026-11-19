@@ -14,6 +14,8 @@ pub(crate) enum Builtin {
     Path,
     PathPosix,
     PathWin32,
+    Os,
+    Process,
 }
 
 impl Builtin {
@@ -30,6 +32,8 @@ impl Builtin {
             "rustyjs:path" | "node:path" | "path" => Some(Self::Path),
             "rustyjs:path/posix" | "node:path/posix" | "path/posix" => Some(Self::PathPosix),
             "rustyjs:path/win32" | "node:path/win32" | "path/win32" => Some(Self::PathWin32),
+            "rustyjs:os" | "node:os" | "os" => Some(Self::Os),
+            "rustyjs:process" | "node:process" | "process" => Some(Self::Process),
             _ => None,
         }
     }
@@ -45,6 +49,8 @@ impl Builtin {
             Self::Path => "rustyjs:path",
             Self::PathPosix => "rustyjs:path/posix",
             Self::PathWin32 => "rustyjs:path/win32",
+            Self::Os => "rustyjs:os",
+            Self::Process => "rustyjs:process",
         }
     }
 
@@ -57,6 +63,8 @@ impl Builtin {
             Self::Stream => &["Writable", "Readable", "finished", "pipeline", "promises"],
             Self::StreamPromises => &["finished", "pipeline"],
             Self::Path | Self::PathPosix | Self::PathWin32 => &PATH_NAMES,
+            Self::Os => &OS_NAMES,
+            Self::Process => &PROCESS_NAMES,
         }
     }
 }
@@ -86,6 +94,22 @@ const PATH_NAMES: [&str; 16] = [
     "delimiter",
     "posix",
     "win32",
+];
+const OS_NAMES: [&str; 10] = [
+    "default",
+    "platform",
+    "arch",
+    "type",
+    "endianness",
+    "availableParallelism",
+    "homedir",
+    "tmpdir",
+    "EOL",
+    "devNull",
+];
+const PROCESS_NAMES: [&str; 15] = [
+    "default", "argv", "execArgv", "argv0", "execPath", "platform", "arch", "pid", "version",
+    "versions", "release", "env", "cwd", "uptime", "hrtime",
 ];
 
 pub(crate) struct NativeExports(HashMap<Builtin, Vec<v8::Global<v8::Value>>>);
@@ -165,6 +189,26 @@ impl NativeExports {
             }
             exports.insert(builtin, values);
         }
+        let host = crate::host::create(scope)?;
+        for (builtin, name, names) in [
+            (Builtin::Os, "os", &OS_NAMES[..]),
+            (Builtin::Process, "process", &PROCESS_NAMES[..]),
+        ] {
+            let key = v8::String::new(scope, name)?;
+            let object = v8::Local::<v8::Object>::try_from(host.get(scope, key.into())?).ok()?;
+            if builtin == Builtin::Process
+                && global.create_data_property(scope, key.into(), object.into()) != Some(true)
+            {
+                return None;
+            }
+            let mut values = vec![v8::Global::new(scope, v8::Local::<v8::Value>::from(object))];
+            for name in &names[1..] {
+                let key = v8::String::new(scope, name)?;
+                let value = object.get(scope, key.into())?;
+                values.push(v8::Global::new(scope, value));
+            }
+            exports.insert(builtin, values);
+        }
         Some(Self(exports))
     }
 }
@@ -203,7 +247,12 @@ pub(crate) fn commonjs_object<'s>(
     };
     if matches!(
         builtin,
-        Builtin::Events | Builtin::Path | Builtin::PathPosix | Builtin::PathWin32
+        Builtin::Events
+            | Builtin::Path
+            | Builtin::PathPosix
+            | Builtin::PathWin32
+            | Builtin::Os
+            | Builtin::Process
     ) {
         return v8::Local::<v8::Object>::try_from(functions[0]).ok();
     }

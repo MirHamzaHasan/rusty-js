@@ -23,6 +23,11 @@ updating documentation, running real tests, and committing/pushing tested work t
 GitHub incrementally. Use Git and the GitHub integration; never invoke `gh`,
 including through a Git credential helper. Preserve the full product roadmap.
 
+On 2026-11-19 the owner paused that autonomous goal and requested wrapping up
+the in-progress changes and merging tested code into main. Complete this handoff
+without starting another feature. Resume autonomous feature work only after an
+owner request; the remaining roadmap below is planned work, not a completion claim.
+
 On 2026-11-19 the owner directed local testing only and no GitHub CI for now.
 Do not trigger GitHub Actions or add automatic CI triggers. The workflow is
 manual-only; leave it idle unless the owner explicitly asks for remote checks.
@@ -146,9 +151,14 @@ and third-party/web adapters remain separate work. Path now adds POSIX/Windows
 lexical utilities, shared variant/default/CommonJS objects, and a private cwd
 callback. Keep `docs/path.md` current. This does not canonicalize files, enforce
 permissions, or implement Windows per-drive cwd entries. Cwd errors must remain
-catchable; absolute anchors should avoid unnecessary cwd reads. Next add bounded
-os/process metadata before filesystem/network-backed streams; streaming text
-decoding is still separate.
+catchable; absolute anchors should avoid unnecessary cwd reads. OS/process now
+provide explicit library RuntimeOptions, CLI script arguments/environment snapshots,
+runtime-relative clocks, host facts, and eventual exitCode. Keep `docs/host.md`
+current. Library defaults must not inherit ambient argv/environment; JS environment
+edits never mutate the Rust process environment. An uncaught CLI error overrides
+requested status, and status changes must not bypass async draining. Host facts
+are not a sandbox permission boundary. Filesystem/crypto/web APIs and streaming
+text decoding remain separate work.
 The high-water mark is advisory; no runtime memory budget is implied.
 No package manager or full Node compatibility is implied.
 

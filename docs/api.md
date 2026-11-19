@@ -207,6 +207,19 @@ validation, cwd failures, Windows drive-state limits, and selected compatibility
 evidence are documented in the [path contract](path.md). There is no global path,
 process.chdir, or glob API in this slice.
 
+## OS and process metadata
+
+The global process and process/node:process/rustyjs:process default exports share
+identity. os/node:os/rustyjs:os provide host facts. The supported subset includes
+argv/execArgv, identity/version fields, a runtime-local environment, cwd, monotonic
+uptime/hrtime, eventual exitCode, and basic OS/path/parallelism queries.
+
+The CLI inherits valid UTF-8 environment entries and passes script arguments.
+Library new() does not inherit arguments/environment; with_options configures
+them explicitly. Environment edits remain local, and exitCode cannot kill the
+embedding process or bypass pending host work. See the [host contract](host.md)
+for export lists, validation, encoding, unsupported APIs, and lifecycle limits.
+
 ## `console.log(...values)`
 
 Each value undergoes JavaScript string conversion; the resulting strings are
