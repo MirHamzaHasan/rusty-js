@@ -11,7 +11,7 @@ established for RustyJS.
 
 ## Status
 
-Phase 2 provides core EventEmitter, Buffer, and Writable support. Core execution supports classic scripts from files or inline
+Phase 2 provides core EventEmitter, Buffer, and Readable/Writable support. Core execution supports classic scripts from files or inline
 source, native `console.log`, and JavaScript exception diagnostics with file origins
 and available stack traces. It explicitly drains Promise microtasks and exposes
 `Rusty.sleep(ms)` through a Tokio-to-JavaScript Promise bridge. The library keeps
@@ -35,7 +35,8 @@ sharing constructor identity across ESM and CommonJS.
 Buffer adds Uint8Array-backed bytes, explicit copy/view ownership, UTF-8 and
 binary encodings, bounds-checked numeric IO, and the node:buffer/buffer aliases.
 Writable adds serialized byte/object writes, backpressure, and explicit lifecycle
-cleanup through node:stream/stream. Readable and piping are next.
+cleanup through node:stream/stream. Readable adds pull/push buffering, pause/resume,
+iterable sources, and pipes that wait for every blocked destination.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -59,6 +60,7 @@ cargo run --locked -- examples/commonjs/factory.mjs
 cargo run --locked -- examples/events/main.mjs
 cargo run --locked -- examples/buffer/main.mjs
 cargo run --locked -- examples/streams/writable.mjs
+cargo run --locked -- examples/streams/pipe.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -91,6 +93,7 @@ The [package contract](docs/packages.md) describes resolution and format rules:
 [CommonJS loading](docs/commonjs.md) when imported or required. CLI `.js` files
 still default to classic scripts unless a mode flag is supplied.
 See [EventEmitter](docs/events.md), [Buffer](docs/buffer.md), [Writable](docs/streams.md),
+[Readable and pipes](docs/readable.md),
 and [Phase 2 progress](docs/phase-2.md) for the
 initial Node surface and remaining milestones.
 
