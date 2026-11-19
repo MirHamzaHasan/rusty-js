@@ -40,7 +40,7 @@ impl Builtin {
             Self::Module => &["createRequire"],
             Self::Events => &["default", "EventEmitter"],
             Self::Buffer => &["Buffer"],
-            Self::Stream => &["Writable"],
+            Self::Stream => &["Writable", "Readable"],
         }
     }
 }
@@ -74,14 +74,20 @@ impl NativeExports {
         let create_require: v8::Local<v8::Value> = create_require.into();
         let events = crate::events::create(scope)?;
         let buffer = crate::buffer::create(scope)?;
-        let writable = crate::streams::create(scope, events, buffer)?;
+        let streams = crate::streams::create(scope, events, buffer)?;
         let key = v8::String::new(scope, "Buffer")?;
         if global.create_data_property(scope, key.into(), buffer) != Some(true) {
             return None;
         }
         Some(Self(HashMap::from([
             (Builtin::Buffer, vec![v8::Global::new(scope, buffer)]),
-            (Builtin::Stream, vec![v8::Global::new(scope, writable)]),
+            (
+                Builtin::Stream,
+                streams
+                    .into_iter()
+                    .map(|value| v8::Global::new(scope, value))
+                    .collect(),
+            ),
             (Builtin::Timers, functions),
             (
                 Builtin::Module,

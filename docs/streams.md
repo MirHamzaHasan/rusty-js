@@ -1,10 +1,12 @@
-# Streams: Writable foundation
+# Streams: Readable/Writable foundation
 
-The first stream slice provides the named `Writable` export from `rustyjs:stream`,
+The stream module provides named `Writable` and `Readable` exports from `rustyjs:stream`,
 `node:stream`, and `stream`. Aliases share one ESM namespace and constructor.
-CommonJS returns a cached `{Writable}` object. Writable extends the existing
+CommonJS returns a cached `{Writable, Readable}` object. Writable extends the existing
 [EventEmitter](events.md) and uses [Buffer](buffer.md) for byte chunks.
 There is no global stream class or default ESM export yet.
+This page covers Writable. See [Readable and piping](readable.md) for pulls,
+buffered reads, flow controls, iterable sources, and pipe cleanup.
 
 ```js
 import { Writable } from 'node:stream';
@@ -55,7 +57,8 @@ Existing Buffers retain their identity and share their bytes with the caller;
 plain Uint8Arrays are copied. Detached byte inputs throw before queue mutation.
 Do not mutate a submitted Buffer until its write callback runs.
 
-Object mode preserves chunk identity. Both modes reject null and undefined.
+Object mode preserves chunk identity, including undefined. Both modes reject null;
+byte mode also rejects undefined.
 With decodeStrings=false, strings reach `_write` unchanged and their queue cost
 is UTF-16 string length. `setDefaultEncoding(name)` changes subsequent string
 writes. Encodings use the Buffer contract; invalid names/types fail synchronously.
@@ -129,7 +132,7 @@ EventEmitter dispatch method. Captured intrinsics are API stability measures,
 not a hardened realm or preemption mechanism. A long microtask chain can delay
 Tokio progress.
 
-Readable, pipe/unpipe, Duplex/Transform, pipeline/finished, async iteration, web
+Duplex/Transform, pipeline/finished, async consumer iteration, web
 streams, AbortSignal, `_construct`, `_writev`, and broad Node option/internal
 compatibility are not implemented yet. Known unsupported construct/writev/signal
 options throw rather than silently succeeding. Unknown options are ignored.

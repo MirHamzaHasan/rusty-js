@@ -9,7 +9,7 @@ const weakGet = uncurry(WeakMap.prototype.get), weakSet = uncurry(WeakMap.protot
 const push = uncurry(Array.prototype.push), shift = uncurry(Array.prototype.shift);
 const then = uncurry(Promise.prototype.then);
 const checkpoint = Promise.resolve();
-const defer = fn => { then(checkpoint, fn); };
+const defer = fn => { then(checkpoint, () => { fn(); }); };
 const states = new WeakMap();
 const bufferFrom = Buffer.from, isBuffer = Buffer.isBuffer, isEncoding = Buffer.isEncoding;
 const typedPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -180,7 +180,7 @@ class Writable extends EventEmitter {
         if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
         callback = validateCallback(callback);
         encoding = encoding === undefined ? state.defaultEncoding : validateEncoding(encoding);
-        if (chunk === null || chunk === undefined) throw new TypeErrorCtor('null/undefined is not a writable chunk');
+        if (chunk === null || (!state.objectMode && chunk === undefined)) throw new TypeErrorCtor('invalid writable chunk');
         let length = 1;
         if (!state.objectMode) {
             if (typeof chunk === 'string') {

@@ -9,7 +9,8 @@ compatibility target or a package/tooling replacement.
 | Core EventEmitter with ESM/CJS aliases | Implemented; see [events](events.md) for tested semantics and omissions |
 | Buffer and binary encodings | Implemented subset; see [Buffer](buffer.md) for ownership, limits, and omissions |
 | Writable streams | Implemented subset; see [streams](streams.md) for backpressure, lifecycle, and scheduling |
-| Readable and piping | Next slice |
+| Readable and piping | Implemented subset; see [Readable](readable.md) for producer/consumer modes and cleanup |
+| Async stream consumers and lifecycle helpers | Next slice |
 | path, os, process | Planned bounded surface |
 | fs and crypto | Planned |
 | fetch, Request/Response, URL | Planned |
@@ -19,15 +20,17 @@ compatibility target or a package/tooling replacement.
 
 Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 
-- `cargo test --locked`: 123 passed: 18 library, 12 Buffer CLI, 15 general CLI,
-  14 CommonJS CLI, 11 events CLI, 16 module CLI, 21 package CLI, and 16 stream CLI tests.
+- `cargo test --locked`: 146 passed: 18 library, 12 Buffer CLI, 15 general CLI,
+  14 CommonJS CLI, 11 events CLI, 16 module CLI, 21 package CLI, 23 Readable CLI,
+  and 16 Writable CLI tests.
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
 - `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
 - EventEmitter examples printed `event: 42` once and `CommonJS event: 42`.
 - Buffer example printed `42 OK`, then `shared: NK copy: OK`.
 - Writable example printed `hello world` after backpressure and asynchronous writes.
-- Markdown links and whitespace: valid across sixteen project documents.
+- Readable/pipe example printed `hello world` through an asynchronous sink.
+- Markdown links and whitespace: valid across seventeen project documents.
 
 Event tests exercise synchronous order and receivers, mutation snapshots,
 duplicates, once reentrancy, listener metadata, symbols/property keys, errors,
@@ -58,10 +61,19 @@ Notifications use Promise checkpoints rather than Node nextTick phases. Sixteen
 integration tests cover queue/lifecycle ordering and failure cleanup. There is
 no separate host scheduler, native IO adapter, or performance claim.
 
-## Next slice: Readable and piping
+## Readable slice
 
-Build Readable on the existing EventEmitter, Buffer, and Writable APIs. Define
-pull/push consumption, pause/resume, pipe backpressure, EOF, errors, and destruction
-before wiring filesystem or network handles. Do not expand into full Node compatibility.
+Readable adds pull/push buffering, manual read sizes, flowing pause/resume,
+multiple-destination backpressure, unpipe/EOF/error cleanup, and Readable.from
+for sync/async iterable producers. Twenty-three tests cover behavior and reentrant
+metadata failures. A selected 256-entry corpus matched local Node v20.19.4 for
+buffered bytes, pressure, and asynchronous piping; tick-phase parity is not claimed.
+Writable object mode now accepts undefined for compatible object pipelines.
+
+## Next slice: async consumers and lifecycle helpers
+
+Add async consumer iteration and pipeline/finished supervision before native IO
+adapters. Then move to bounded path/os/process, filesystem, crypto, and web APIs.
+Incremental text decoding remains explicit work. Do not expand into full Node compatibility.
 Preserve the later AI, blockchain, dataframe, and GPU roadmap without claiming
 those facilities are already shipped.

@@ -4,8 +4,19 @@ pub(crate) fn create<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     events: v8::Local<'s, v8::Value>,
     buffer: v8::Local<'s, v8::Value>,
+) -> Option<[v8::Local<'s, v8::Value>; 2]> {
+    let writable = compile(scope, include_str!("js/writable.js"), events, buffer)?;
+    let readable = compile(scope, include_str!("js/readable.js"), events, buffer)?;
+    Some([writable, readable])
+}
+
+fn compile<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    source: &str,
+    events: v8::Local<'s, v8::Value>,
+    buffer: v8::Local<'s, v8::Value>,
 ) -> Option<v8::Local<'s, v8::Value>> {
-    let code = v8::String::new(scope, include_str!("js/writable.js"))?;
+    let code = v8::String::new(scope, source)?;
     let name = v8::String::new(scope, "rustyjs:stream")?;
     let origin = v8::ScriptOrigin::new(
         scope,
