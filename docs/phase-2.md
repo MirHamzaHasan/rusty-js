@@ -10,8 +10,8 @@ compatibility target or a package/tooling replacement.
 | Buffer and binary encodings | Implemented subset; see [Buffer](buffer.md) for ownership, limits, and omissions |
 | Writable streams | Implemented subset; see [streams](streams.md) for backpressure, lifecycle, and scheduling |
 | Readable and piping | Implemented subset; see [Readable](readable.md) for producer/consumer modes and cleanup |
-| Async stream consumers and lifecycle helpers | Next slice |
-| path, os, process | Planned bounded surface |
+| Async stream consumers and lifecycle helpers | Implemented subset; see [lifecycle helpers](stream-lifecycle.md) for cleanup and scoped pipeline behavior |
+| path, os, process | Next bounded surface |
 | fs and crypto | Planned |
 | fetch, Request/Response, URL | Planned |
 | Express/package-suite compatibility | Future validation milestone when its required surface exists |
@@ -20,9 +20,9 @@ compatibility target or a package/tooling replacement.
 
 Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 
-- `cargo test --locked`: 146 passed: 18 library, 12 Buffer CLI, 15 general CLI,
+- `cargo test --locked`: 168 passed: 18 library, 12 Buffer CLI, 15 general CLI,
   14 CommonJS CLI, 11 events CLI, 16 module CLI, 21 package CLI, 23 Readable CLI,
-  and 16 Writable CLI tests.
+  16 Writable CLI, and 22 stream lifecycle CLI tests.
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
 - `cargo doc --locked --no-deps`: generated the Rust API reference successfully.
@@ -30,7 +30,9 @@ Platform: macOS arm64, Rust/Cargo 1.97.1, V8 152.2.0.
 - Buffer example printed `42 OK`, then `shared: NK copy: OK`.
 - Writable example printed `hello world` after backpressure and asynchronous writes.
 - Readable/pipe example printed `hello world` through an asynchronous sink.
-- Markdown links and whitespace: valid across seventeen project documents.
+- Async iteration example released its generator and reported closed after break.
+- Supervised pipeline example printed `hello world` and `closed: true true`.
+- Markdown links and whitespace: valid across eighteen project documents.
 
 Event tests exercise synchronous order and receivers, mutation snapshots,
 duplicates, once reentrancy, listener metadata, symbols/property keys, errors,
@@ -70,10 +72,20 @@ metadata failures. A selected 256-entry corpus matched local Node v20.19.4 for
 buffered bytes, pressure, and asynchronous piping; tick-phase parity is not claimed.
 Writable object mode now accepts undefined for compatible object pipelines.
 
-## Next slice: async consumers and lifecycle helpers
+## Async consumers and lifecycle helpers
 
-Add async consumer iteration and pipeline/finished supervision before native IO
-adapters. Then move to bounded path/os/process, filesystem, crypto, and web APIs.
+Async iterators support FIFO next calls, early-return destruction, preservation
+mode, and cleanup without close events. Callback and Promise finished/pipeline
+helpers observe registered stream state, preserve the first failure, supervise
+peer destruction, and clean up observers. Pipeline currently connects two endpoints;
+transform/function stages remain separate work. Twenty-two lifecycle tests and
+a selected 384-entry corpus matching Node v20.19.4 provide local correctness evidence.
+
+## Next slice: path/os/process
+
+Add bounded path utilities, host facts, and CLI process metadata, then move to
+filesystem, crypto, and web APIs. Keep host IO permissions explicit for the later
+AI sandbox phase; no security boundary exists yet.
 Incremental text decoding remains explicit work. Do not expand into full Node compatibility.
 Preserve the later AI, blockchain, dataframe, and GPU roadmap without claiming
 those facilities are already shipped.

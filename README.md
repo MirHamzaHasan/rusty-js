@@ -37,6 +37,8 @@ binary encodings, bounds-checked numeric IO, and the node:buffer/buffer aliases.
 Writable adds serialized byte/object writes, backpressure, and explicit lifecycle
 cleanup through node:stream/stream. Readable adds pull/push buffering, pause/resume,
 iterable sources, and pipes that wait for every blocked destination.
+Async iteration supports early-exit cleanup. finished/pipeline helpers and
+stream/promises aliases observe completion and supervise peer cleanup on failure.
 Unhandled rejections fail the current run after its microtask checkpoint. This is
 an early runtime for trusted scripts; it does not enforce time or memory limits.
 
@@ -61,6 +63,8 @@ cargo run --locked -- examples/events/main.mjs
 cargo run --locked -- examples/buffer/main.mjs
 cargo run --locked -- examples/streams/writable.mjs
 cargo run --locked -- examples/streams/pipe.mjs
+cargo run --locked -- examples/streams/iterate.mjs
+cargo run --locked -- examples/streams/pipeline.mjs
 cargo run --locked -- -e 'console.log("answer", 6 * 7)'
 cargo run --locked -- --help
 ```
@@ -94,6 +98,7 @@ The [package contract](docs/packages.md) describes resolution and format rules:
 still default to classic scripts unless a mode flag is supplied.
 See [EventEmitter](docs/events.md), [Buffer](docs/buffer.md), [Writable](docs/streams.md),
 [Readable and pipes](docs/readable.md),
+[async consumers and lifecycle helpers](docs/stream-lifecycle.md),
 and [Phase 2 progress](docs/phase-2.md) for the
 initial Node surface and remaining milestones.
 

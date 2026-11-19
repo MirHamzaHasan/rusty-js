@@ -65,6 +65,8 @@ Choose a single consumption style per source:
   Resuming without a data listener discards chunks. Listener variants on,
   addListener, once, prependListener, and prependOnceListener all start flow.
 - Use `pipe(destination)` to connect to Writable and manage backpressure.
+- Use `for await (const chunk of source)` for async consumption with early-exit
+  destruction; see [iteration and lifecycle helpers](stream-lifecycle.md).
 
 Adding a readable listener selects manual consumption and prevents automatic
 flow. Remove it and call resume explicitly before changing styles. Don't mix
@@ -133,8 +135,9 @@ those hooks are explicitly rejected.
 
 Calling return cannot preempt arbitrary JS or cancel an unrelated pending Promise.
 A generator blocked on external work may delay cleanup; its implementation must
-provide cancellation. Consuming Readable with for-await is a separate upcoming
-slice; support for async iterable producers does not imply async iterator output.
+provide cancellation. Readable also supports for-await consumers and an explicit
+iterator({destroyOnReturn:false}) preservation mode; see the
+[consumer contract](stream-lifecycle.md#async-consumers).
 
 ## Lifecycle and implementation walkthrough
 
@@ -166,11 +169,13 @@ incremental text decoding are not implemented yet.
    Listener throws still fail the run, while teardown can finish. Captured
    intrinsics provide selected API stability, not a hardened realm or preemption.
 
-There is no setEncoding/StringDecoder, async consumer iteration, Duplex/Transform,
-pipeline/finished, web-stream adapter, AbortSignal, `_construct`, or native IO
+There is no setEncoding/StringDecoder, Duplex/Transform,
+web-stream adapter, AbortSignal, `_construct`, or native IO
 adapter yet. No full Node compatibility or speedup is claimed. The selected API
 shape follows the [Node v24.11.0 stream reference](https://nodejs.org/download/release/v24.11.0/docs/api/stream.html),
 with the explicit limits and scheduling differences above.
+For supervised peer cleanup rather than bare pipe, use the
+[pipeline helper](stream-lifecycle.md#pipeline-transfer-and-supervise).
 
 ## Local correctness evidence
 

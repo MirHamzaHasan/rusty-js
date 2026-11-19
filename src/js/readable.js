@@ -10,6 +10,7 @@ const pushArray = uncurry(Array.prototype.push), shift = uncurry(Array.prototype
 const unshiftArray = uncurry(Array.prototype.unshift), splice = uncurry(Array.prototype.splice);
 const indexOf = uncurry(Array.prototype.indexOf);
 const resolvePromise = Promise.resolve.bind(Promise);
+const PromiseCtor = Promise;
 const then = uncurry(Promise.prototype.then), checkpoint = Promise.resolve();
 const defer = fn => { then(checkpoint, () => { fn(); }); };
 const emit = uncurry(EventEmitter.prototype.emit);
@@ -50,6 +51,7 @@ function schedule(stream, state) {
     defer(() => { state.scheduled = false; drive(stream, state); });
 }
 function notify(stream, state) {
+    Lifecycle.notify(stream);
     if (state.notifying || state.destroyed) return;
     state.notifying = true;
     defer(() => {
@@ -105,6 +107,7 @@ function destroy(stream, state, reason) {
     state.length = 0;
     state.reading = false;
     state.flowing = false;
+    Lifecycle.notify(stream);
     while (state.pipes.length) detach(stream, state, state.pipes[0]);
     let called = false;
     const done = result => {
@@ -113,7 +116,7 @@ function destroy(stream, state, reason) {
         defer(() => {
             if (result != null) state.error = result;
             if (state.error != null) defer(() => emit(stream, 'error', state.error));
-            defer(() => { state.closed = true; if (state.emitClose) emit(stream, 'close'); });
+            defer(() => { state.closed = true; Lifecycle.notify(stream); if (state.emitClose) emit(stream, 'close'); });
         });
     };
     try { apply(stream._destroy, stream, [state.error, done]); }
@@ -127,6 +130,7 @@ function maybeEnd(stream, state) {
         state.endScheduled = false;
         if (state.destroyed || state.ended || state.length !== 0) return;
         state.ended = true;
+        Lifecycle.notify(stream);
         try { emit(stream, 'end'); }
         finally { if (state.autoDestroy) defer(() => destroy(stream, state)); }
     });
@@ -170,6 +174,7 @@ function take(stream, state, size) {
     try { chunk = consume(state, size); }
     catch (caught) { destroy(stream, state, caught); return null; }
     state.didRead = true;
+    Lifecycle.notify(stream);
     schedule(stream, state);
     emit(stream, 'data', chunk);
     return chunk;
@@ -215,6 +220,105 @@ function subscribe(stream, method, name, listener) {
     return stream;
 }
 
+function createIterator(stream, options) {
+    const state = stateOf(stream);
+    if (options === null || typeof options !== 'object') throw new TypeErrorCtor('iterator options must be an object');
+    const destroyOnReturn = bool(options, 'destroyOnReturn', true);
+    const pending = [], endings = [];
+    let started = false, terminal = false, closing = false, scheduled = false;
+    let failed = false, failure, unwatch;
+    const fail = reason => { if (!failed) { failed = true; failure = reason; } };
+    const request = () => {
+        if (scheduled || terminal) return;
+        scheduled = true;
+        defer(() => { scheduled = false; pumpIterator(); });
+    };
+    const onError = reason => {
+        fail(reason);
+        if (!state.destroyed) destroy(stream, state, reason);
+        request();
+    };
+    const cleanup = () => {
+        if (unwatch) { unwatch(); unwatch = undefined; }
+        try { remove(stream, 'error', onError); }
+        catch (caught) { defer(() => { throw caught; }); }
+    };
+    const complete = () => {
+        terminal = true;
+        cleanup();
+        while (pending.length) {
+            const waiter = shift(pending);
+            if (failed) waiter.reject(failure); else waiter.resolve({value: undefined, done: true});
+        }
+        while (endings.length) {
+            const waiter = shift(endings);
+            if (failed) waiter.reject(failure); else waiter.resolve({value: waiter.value, done: true});
+        }
+    };
+    const start = () => {
+        if (started) return;
+        started = true;
+        unwatch = Lifecycle.watch(stream, request);
+        try { prepend(stream, 'error', onError); }
+        catch (caught) { fail(caught); complete(); }
+    };
+    function pumpIterator() {
+        if (terminal) return;
+        const recorded = Lifecycle.inspect(stream).failure;
+        if (recorded) fail(recorded.reason);
+        if (failed && !state.destroyed) destroy(stream, state, failure);
+        if (state.destroyed) {
+            if (!state.closed) return;
+            if (!closing && !state.ended && !failed) fail(error('Stream closed before end', 'ERR_STREAM_PREMATURE_CLOSE'));
+            complete();
+            return;
+        }
+        if (closing) { complete(); return; }
+        if (state.ended) {
+            if (!state.autoDestroy) complete(); // Otherwise wait for cleanup, even with emitClose=false.
+            return;
+        }
+        while (pending.length && !state.destroyed) {
+            let chunk;
+            try { chunk = readForIterator(stream); }
+            catch (caught) { fail(caught); destroy(stream, state, caught); return; }
+            if (chunk === null) return;
+            shift(pending).resolve({value: chunk, done: false});
+        }
+    }
+    const iterator = {
+        next() {
+            return new PromiseCtor((resolve, reject) => {
+                if (terminal) { resolve({value: undefined, done: true}); return; }
+                pushArray(pending, {resolve, reject});
+                start(); request();
+            });
+        },
+        return(value) {
+            return new PromiseCtor((resolve, reject) => {
+                if (terminal) { resolve({value, done: true}); return; }
+                pushArray(endings, {resolve, reject, value});
+                closing = true;
+                start();
+                if (!terminal && destroyOnReturn) destroy(stream, state);
+                request();
+            });
+        },
+        throw(reason) {
+            return new PromiseCtor((resolve, reject) => {
+                if (terminal) { reject(reason); return; }
+                pushArray(endings, {resolve, reject});
+                fail(reason); closing = true;
+                start();
+                if (!terminal) destroy(stream, state, reason);
+                request();
+            });
+        },
+        [asyncIteratorSymbol]() { return this; },
+    };
+    return iterator;
+}
+
 class Readable extends EventEmitter {
     constructor(options = {}) {
         super();
@@ -230,13 +334,15 @@ class Readable extends EventEmitter {
                 define(this, method, {value: options[option], writable: true, configurable: true});
             }
         }
-        weakSet(states, this, {
+        const state = {
             queue: [], pipes: [], length: 0, highWaterMark, objectMode,
             autoDestroy: bool(options, 'autoDestroy', true), emitClose: bool(options, 'emitClose', true),
             reading: false, inRead: false, scheduled: false, notifying: false, demand: false,
             flowing: null, userPaused: false, eof: false, ended: false, endScheduled: false,
             destroyed: false, closed: false, didRead: false, error: null,
-        });
+        };
+        weakSet(states, this, state);
+        Lifecycle.register(this, 'readable', state);
     }
     _read() { this.destroy(error('_read is not implemented', 'ERR_METHOD_NOT_IMPLEMENTED')); }
     _destroy(reason, callback) { callback(reason); }
@@ -350,6 +456,8 @@ class Readable extends EventEmitter {
         return this;
     }
     destroy(reason) { return destroy(this, stateOf(this), reason); }
+    iterator(options = {}) { return createIterator(this, options); }
+    [asyncIteratorSymbol]() { return createIterator(this, {}); }
     get readable() { const state = stateOf(this); return !state.destroyed && !state.ended; }
     get readableLength() { return stateOf(this).length; }
     get readableHighWaterMark() { return stateOf(this).highWaterMark; }
@@ -417,4 +525,5 @@ class Readable extends EventEmitter {
     }
 }
 
+const readForIterator = uncurry(Readable.prototype.read);
 return Readable;

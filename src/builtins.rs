@@ -10,6 +10,7 @@ pub(crate) enum Builtin {
     Events,
     Buffer,
     Stream,
+    StreamPromises,
 }
 
 impl Builtin {
@@ -20,6 +21,9 @@ impl Builtin {
             "rustyjs:events" | "node:events" | "events" => Some(Self::Events),
             "rustyjs:buffer" | "node:buffer" | "buffer" => Some(Self::Buffer),
             "rustyjs:stream" | "node:stream" | "stream" => Some(Self::Stream),
+            "rustyjs:stream/promises" | "node:stream/promises" | "stream/promises" => {
+                Some(Self::StreamPromises)
+            }
             _ => None,
         }
     }
@@ -31,6 +35,7 @@ impl Builtin {
             Self::Events => "rustyjs:events",
             Self::Buffer => "rustyjs:buffer",
             Self::Stream => "rustyjs:stream",
+            Self::StreamPromises => "rustyjs:stream/promises",
         }
     }
 
@@ -40,7 +45,8 @@ impl Builtin {
             Self::Module => &["createRequire"],
             Self::Events => &["default", "EventEmitter"],
             Self::Buffer => &["Buffer"],
-            Self::Stream => &["Writable", "Readable"],
+            Self::Stream => &["Writable", "Readable", "finished", "pipeline", "promises"],
+            Self::StreamPromises => &["finished", "pipeline"],
         }
     }
 }
@@ -84,6 +90,15 @@ impl NativeExports {
             (
                 Builtin::Stream,
                 streams
+                    .stream
+                    .into_iter()
+                    .map(|value| v8::Global::new(scope, value))
+                    .collect(),
+            ),
+            (
+                Builtin::StreamPromises,
+                streams
+                    .promises
                     .into_iter()
                     .map(|value| v8::Global::new(scope, value))
                     .collect(),
@@ -109,6 +124,22 @@ pub(crate) fn commonjs_object<'s>(
     builtin: Builtin,
 ) -> Option<v8::Local<'s, v8::Object>> {
     let modules = scope.get_slot::<SharedModules>()?.clone();
+    if builtin == Builtin::StreamPromises {
+        // CommonJS stream/promises is the same object exported as stream.promises.
+        let object = {
+            let modules = modules.borrow();
+            v8::Local::new(
+                scope,
+                modules
+                    .native_exports
+                    .as_ref()?
+                    .0
+                    .get(&Builtin::Stream)?
+                    .get(4)?,
+            )
+        };
+        return v8::Local::<v8::Object>::try_from(object).ok();
+    }
     let functions = {
         let modules = modules.borrow();
         modules
